@@ -38,6 +38,7 @@ private:
     void drawProfilePage();
     void drawResultsPage();
     void drawSavedPage();
+    void drawScoringPage();
     void drawToolbar();
     void drawTable(const std::vector<int>& rows, const char* tableId);
     void drawDetail();

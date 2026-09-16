@@ -343,6 +343,7 @@ void App::frame() {
         if (!savedRows_.empty()) savedLabel += " (" + std::to_string(savedRows_.size()) + ")";
         savedLabel += "###saved";
         if (ImGui::BeginTabItem(savedLabel.c_str(), nullptr, flag(2))) { drawSavedPage(); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("How scoring works", nullptr, flag(3))) { drawScoringPage(); ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
     requestTab_ = -1;
@@ -651,4 +652,81 @@ void App::drawSavedPage() {
     ImGui::Spacing();
     drawTable(savedRows_, "saved");
     drawDetail();
+}
+
+// ============================================================================
+// scoring explanation
+// ============================================================================
+
+void App::drawScoringPage() {
+    ImGui::BeginChild("scoringScroll", ImVec2(0, 0));
+    ImGui::Spacing();
+    if (headingFont) ImGui::PushFont(headingFont);
+    ImGui::TextUnformatted("How the score is calculated");
+    if (headingFont) ImGui::PopFont();
+    ImGui::TextWrapped("Every listing gets a score out of 100. Six signals are added together and the total is "
+                       "clamped to 0-100. The exact reasons for each listing's score are shown in its detail panel.");
+    ImGui::Spacing();
+
+    struct Row { const char* signal; const char* points; const char* how; };
+    static const Row rows[] = {
+        {"Term", "25 / 12 / 0",
+         "25 if the posting's term matches one you picked (e.g. Summer 2027). 12 if the posting does not say. "
+         "0 if it is explicitly for a term you did not pick - those are hidden unless you tick \"All terms\"."},
+        {"Relevance", "up to 40",
+         "Each interest expands into search words (\"Machine Learning / AI\" becomes ml, ai, deep learning...). "
+         "A hit in the job title or category is worth 14, a hit only in the description is worth 6. "
+         "Your major adds 6 per matching title word (up to 3) and 8 if the posting's category fits your major. "
+         "A minor counts half. Capped at 40."},
+        {"Location", "20 / 14 / 12 / 10 / 0",
+         "20 if it is in a city you selected. 14 if it is remote and remote is fine with you. "
+         "12 if you chose Anywhere. 10 if it is in your home country. Otherwise 0."},
+        {"Degree level", "+10 / +6 / -15",
+         "10 if the posting lists your level (Bachelor's, Master's, PhD). 6 if it does not say. "
+         "-15 if it lists other levels only, e.g. PhD-only."},
+        {"Freshness", "10 / 6 / 2 / 0",
+         "Posted within 7 days, 30 days, 90 days, or older."},
+        {"Sponsorship", "-30 / +5",
+         "Only if you said you need US visa sponsorship: -30 if the posting says no sponsorship or requires "
+         "citizenship, +5 if it says it sponsors."},
+    };
+
+    ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersOuter |
+                            ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable("scoring", 3, flags)) {
+        ImGui::TableSetupColumn("Signal", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+        ImGui::TableSetupColumn("Points", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn("How it is decided", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+        for (const Row& r : rows) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(r.signal);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextColored(kBlue, "%s", r.points);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::TextWrapped("%s", r.how);
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Small extras");
+    ImGui::BulletText("+4 if the description mentions your graduation year.");
+    ImGui::TextWrapped("    A \"Watch out\" warning (no point change) appears if the description asks for a rising senior or "
+                       "penultimate-year student and you are in an earlier year.");
+
+    ImGui::Spacing();
+    ImGui::TextUnformatted("What a 100 looks like");
+    ImGui::TextWrapped("Right term (25) + strong title match on your interests (40) + a city you chose (20) + degree fits (10) "
+                       "+ posted this week (10) = 105 before clamping. That is why several listings tie at 100; ties are "
+                       "ordered newest first.");
+
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Reading the colours");
+    ImGui::TextColored(kGreen, "70 and above");  ImGui::SameLine(); ImGui::TextUnformatted("strong match");
+    ImGui::TextColored(kAmber, "45 to 69");      ImGui::SameLine(); ImGui::TextUnformatted("worth a look");
+    ImGui::TextColored(kMuted, "below 45");      ImGui::SameLine(); ImGui::TextUnformatted("weak match (hidden by the default Min score of 40)");
+    ImGui::Spacing();
+    ImGui::EndChild();
 }
