@@ -43,5 +43,8 @@ std::vector<Listing> fetchAllSources(const SourceConfig& config,
 // True if the title (or employment type) looks like an internship rather than a full-time role.
 bool looksLikeInternship(const std::string& title);
 
+// True if the title says co-op / coop (as opposed to a plain internship).
+bool looksLikeCoop(const std::string& title);
+
 // Pull "Summer 2027"-style terms out of free text. Empty if none are mentioned.
 std::vector<std::string> extractTerms(const std::string& textToScan);

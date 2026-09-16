@@ -40,6 +40,7 @@ struct Options {
     int limit = 25;
     int minScore = 40;
     int everyMinutes = 30;
+    std::string type;                     // "", "intern" or "coop"
 };
 
 int toInt(const std::string& s, int fallback) {
@@ -57,6 +58,7 @@ Options parseArgs(int argc, char** argv) {
         else if (a == "--limit" || a == "-n") o.limit = toInt(next(), o.limit);
         else if (a == "--min" || a == "-m") o.minScore = toInt(next(), o.minScore);
         else if (a == "--every" || a == "-e") o.everyMinutes = toInt(next(), o.everyMinutes);
+        else if (a == "--type" || a == "-t") o.type = text::lower(next());
         else if (a.rfind("--", 0) == 0) std::cerr << ui::warn("unknown option " + a) << "\n";
         else o.positional.push_back(a);
     }
@@ -81,7 +83,8 @@ void printHelp() {
               << "  --all, -a         include weak matches and other terms\n"
               << "  --limit N, -n N   how many results to show          (default 25)\n"
               << "  --min N, -m N     minimum score 0-100 to show       (default 40)\n"
-              << "  --every N, -e N   minutes between checks in watch    (default 30)\n\n"
+              << "  --every N, -e N   minutes between checks in watch    (default 30)\n"
+              << "  --type intern|coop  only internships, or only co-ops\n\n"
               << ui::dim("Data folder: " + dataDir()) << "\n";
 }
 
@@ -260,6 +263,8 @@ int cmdSearch(const Options& o) {
     int newCount = 0;
     for (const Match& m : ranked) {
         if (!o.all && (m.termMismatch || m.score < o.minScore)) continue;
+        if (o.type == "intern" && looksLikeCoop(m.listing->title)) continue;
+        if (o.type == "coop" && !looksLikeCoop(m.listing->title)) continue;
         if (state.isNew(m.listing->id) && !o.all && m.score >= o.minScore) ++newCount;
         if (static_cast<int>(shown.size()) < o.limit) shown.push_back(&m);
     }

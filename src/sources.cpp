@@ -66,6 +66,11 @@ bool looksLikeInternship(const std::string& title) {
     return std::regex_search(title, re);
 }
 
+bool looksLikeCoop(const std::string& title) {
+    static const std::regex re(R"(\b(co-op|coop|co op|cooperative education)\b)", std::regex::icase);
+    return std::regex_search(title, re);
+}
+
 std::vector<std::string> extractTerms(const std::string& textToScan) {
     static const std::regex re(R"(\b(Summer|Fall|Autumn|Winter|Spring)\s*[-/]?\s*(20\d\d)\b)",
                                std::regex::icase);

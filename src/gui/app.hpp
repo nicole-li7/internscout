@@ -76,6 +76,7 @@ private:
     char filterText_[128] = "";
     int minScore_ = 40;
     bool allTerms_ = false;
+    int typeIdx_ = 0;                    // 0 = all, 1 = internships only, 2 = co-ops only
     int autoRefreshIdx_ = 2;             // index into kAutoRefreshMinutes
     std::string lastNotice_;             // one-line status shown in the toolbar
 

@@ -16,7 +16,7 @@ Written in C++17 with SDL2 + Dear ImGui for the window. A command-line version
 - **Internships** - every matching posting ranked by score, with a NEW badge for ones
   that appeared since you last looked. Click a row for details and the reasons behind
   its score; double-click (or press *Open & apply*) to open it in your browser.
-  Filter by text, minimum score, or include other terms.
+  Filter by text, minimum score, internships vs co-ops, or include other terms.
 - **Saved** and **Applied** - bookmarks and the applications you have marked.
 - **Explanation** - how the match score is calculated.
 - **Auto-refresh** - leave it open and it re-checks every 15-120 minutes and sends a
@@ -86,6 +86,7 @@ Useful flags:
 --limit N      how many results to show (default 25)
 --min N        minimum score 0-100 (default 40)
 --every N      minutes between checks in watch mode (default 30)
+--type X       intern or coop: show only internships, or only co-ops
 ```
 
 ## How matching works

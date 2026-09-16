@@ -12,6 +12,7 @@ namespace {
 
 const int kAutoRefreshMinutes[] = {0, 15, 30, 60, 120};
 const char* kAutoRefreshLabels[] = {"Off", "Every 15 min", "Every 30 min", "Every hour", "Every 2 hours"};
+const char* kTypeLabels[] = {"Internships & co-ops", "Internships only", "Co-ops only"};
 
 // Colours used for badges and scores.
 const ImVec4 kGreen(0.13f, 0.60f, 0.33f, 1.0f);
@@ -303,6 +304,8 @@ void App::refilter() {
         else if (state_.saved.count(l.id)) savedRows_.push_back(static_cast<int>(i));
         if (!allTerms_ && m.termMismatch) continue;
         if (m.score < minScore_) continue;
+        if (typeIdx_ == 1 && looksLikeCoop(l.title)) continue;
+        if (typeIdx_ == 2 && !looksLikeCoop(l.title)) continue;
         if (!needle.empty() && !text::contains(l.title, needle) && !text::contains(l.company, needle) &&
             !text::contains(text::join(l.locations, " "), needle))
             continue;
@@ -489,6 +492,16 @@ void App::drawToolbar() {
     ImGui::PushItemWidth(160);
     if (ImGui::SliderInt("##min", &minScore_, 0, 100, "Min score %d")) filtersDirty_ = true;
     ImGui::PopItemWidth();
+
+    ImGui::SameLine();
+    ImGui::PushItemWidth(190);
+    if (ImGui::BeginCombo("##type", kTypeLabels[typeIdx_])) {
+        for (int i = 0; i < 3; ++i)
+            if (ImGui::Selectable(kTypeLabels[i], i == typeIdx_)) { typeIdx_ = i; filtersDirty_ = true; }
+        ImGui::EndCombo();
+    }
+    ImGui::PopItemWidth();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Co-ops are postings whose title says co-op. Everything else counts as an internship.");
 
     ImGui::SameLine();
     if (ImGui::Checkbox("All terms", &allTerms_)) filtersDirty_ = true;
