@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "internscout search",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/internscout",
+      "args": ["search"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build"
+    }
+  ]
+}

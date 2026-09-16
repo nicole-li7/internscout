@@ -1,0 +1,13 @@
+# build output
+build/
+cmake-build-*/
+
+# editor / OS noise
+.DS_Store
+*.swp
+.idea/
+
+# never commit personal profile data if it is ever copied here
+profile.json
+state.json
+listings.json

@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "configure",
+      "type": "shell",
+      "command": "cmake -S . -B build",
+      "problemMatcher": []
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "cmake --build build",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"],
+      "dependsOn": "configure"
+    },
+    {
+      "label": "search",
+      "type": "shell",
+      "command": "./build/internscout search",
+      "dependsOn": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "install to PATH",
+      "type": "shell",
+      "command": "cmake --install build",
+      "dependsOn": "build",
+      "problemMatcher": []
+    }
+  ]
+}
