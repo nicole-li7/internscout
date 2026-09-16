@@ -82,14 +82,17 @@ bool multiSelect(const char* id, const char* anyLabel, bool& any, const std::vec
 App::App() {
     profileOk_ = loadProfile(profilePath(), profile_) && profile_.isComplete();
     state_ = loadState();
+    deepSearch_ = loadSourceConfig(sourcesPath()).discover;
     loadFormFromProfile();
 
     ListingCache cache;
     if (loadCache(cache)) {
         listings_ = std::move(cache.listings);
         fetchedAt_ = cache.fetchedAt;
-        rerank();
     }
+    // Saved/applied listings are kept in state.json too, so they never vanish.
+    if (reconcilePins(state_, listings_)) saveState(state_);
+    if (!listings_.empty()) rerank();
     if (!profileOk_) {
         requestTab_ = 0;
         formMessage_ = "Welcome! Fill this in once and InternScout will rank internships for you.";
@@ -220,7 +223,7 @@ void App::startFetch() {
         std::vector<FetchReport> reports;
         std::vector<Listing> result = fetchAllSources(config, reports, [this](const std::string& what) {
             std::lock_guard<std::mutex> lock(fetchMutex_);
-            fetchStatus_ = "Fetching " + what + "...";
+            fetchStatus_ = what;
         });
         std::lock_guard<std::mutex> lock(fetchMutex_);
         fetchResult_ = std::move(result);
@@ -259,6 +262,7 @@ void App::pollFetch() {
     fetchedAt_ = std::time(nullptr);
     saveCache(ListingCache{fetchedAt_, listings_});
     for (const std::string& id : fresh) state_.firstSeen[id] = fetchedAt_;
+    reconcilePins(state_, listings_);  // carry saved/applied marks over, keep closed ones visible
     saveState(state_);
     if (!firstEver) newIds_.insert(fresh.begin(), fresh.end());
 
@@ -484,6 +488,17 @@ void App::drawToolbar() {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keep checking for new postings while the app is open.\nYou get a notification when a good new match appears.");
 
     ImGui::SameLine();
+    if (ImGui::Checkbox("Deep search", &deepSearch_)) {
+        SourceConfig cfg = loadSourceConfig(sourcesPath());
+        cfg.discover = deepSearch_;
+        saveSourceConfig(sourcesPath(), cfg);
+        lastNotice_ = deepSearch_ ? "Deep search on - press Refresh now to check hundreds of company boards."
+                                  : "Deep search off - only the internship lists and hand-picked boards.";
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Also query every company job board linked from the internship lists\n(several hundred companies, many of them small). Slower, but finds far more.");
+
+    ImGui::SameLine();
     ImGui::PushItemWidth(220);
     if (ImGui::InputTextWithHint("##filter", "Search company, title, city", filterText_, sizeof filterText_)) filtersDirty_ = true;
     ImGui::PopItemWidth();
@@ -569,7 +584,8 @@ void App::drawTable(const std::vector<int>& rows, const char* tableId) {
             ImGui::TableSetColumnIndex(4);
             std::string loc = l.locations.empty() ? "-" : l.locations.front();
             if (l.locations.size() > 1) loc += " +" + std::to_string(l.locations.size() - 1);
-            ImGui::TextColored(kMuted, "%s", loc.c_str());
+            if (l.closed) loc = "(closed) " + loc;
+            ImGui::TextColored(l.closed ? kAmber : kMuted, "%s", loc.c_str());
             ImGui::TableSetColumnIndex(5);
             ImGui::TextColored(kMuted, "%s", text::formatDate(l.datePosted).c_str());
             ImGui::PopID();
@@ -594,6 +610,7 @@ void App::drawDetail() {
     ImGui::TextUnformatted(l.company.c_str());
     ImGui::SameLine();
     ImGui::TextColored(kMuted, "  %s", text::join(l.locations, "; ").c_str());
+    if (l.closed) ImGui::TextColored(kAmber, "This posting is no longer listed anywhere, but your record of it is kept.");
 
     ImGui::Spacing();
     ImGui::PushStyleColor(ImGuiCol_Button, kBlue);
@@ -605,12 +622,14 @@ void App::drawDetail() {
     bool applied = state_.applied.count(l.id) > 0;
     if (ImGui::Button(saved ? "Unsave" : "Save")) {
         if (saved) state_.saved.erase(l.id); else state_.saved.insert(l.id);
+        reconcilePins(state_, listings_);  // pin a private copy right away
         saveState(state_);
         filtersDirty_ = true;
     }
     ImGui::SameLine();
     if (ImGui::Button(applied ? "Not applied" : "Mark applied")) {
         if (applied) state_.applied.erase(l.id); else { state_.applied.insert(l.id); state_.saved.erase(l.id); }
+        reconcilePins(state_, listings_);
         saveState(state_);
         filtersDirty_ = true;
     }

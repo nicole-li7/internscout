@@ -23,6 +23,7 @@ struct Listing {
     std::string description;             // plain text, often empty (Simplify doesn't provide one)
     std::time_t datePosted = 0;          // Unix timestamp
     bool remote = false;                 // true if any location says remote
+    bool closed = false;                 // true if this is a saved/applied copy of a posting that has since disappeared
 };
 
 // These two functions let nlohmann::json convert Listing <-> JSON automatically,
@@ -33,7 +34,7 @@ inline void to_json(nlohmann::json& j, const Listing& l) {
         {"title", l.title},     {"locations", l.locations}, {"terms", l.terms},
         {"degrees", l.degrees}, {"category", l.category},   {"sponsorship", l.sponsorship},
         {"url", l.url},         {"description", l.description},
-        {"datePosted", static_cast<long long>(l.datePosted)}, {"remote", l.remote},
+        {"datePosted", static_cast<long long>(l.datePosted)}, {"remote", l.remote}, {"closed", l.closed},
     };
 }
 
@@ -51,4 +52,5 @@ inline void from_json(const nlohmann::json& j, Listing& l) {
     l.description = j.value("description", "");
     l.datePosted = static_cast<std::time_t>(j.value("datePosted", 0LL));
     l.remote = j.value("remote", false);
+    l.closed = j.value("closed", false);
 }

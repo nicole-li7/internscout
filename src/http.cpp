@@ -21,7 +21,7 @@ void ensureCurlInitialised() {
 
 }  // namespace
 
-HttpResult httpGet(const std::string& url, int timeoutSeconds) {
+static HttpResult perform(const std::string& url, const std::string* postBody, int timeoutSeconds) {
     ensureCurlInitialised();
     HttpResult result;
 
@@ -43,6 +43,15 @@ HttpResult httpGet(const std::string& url, int timeoutSeconds) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result.body);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuffer);
 
+    struct curl_slist* headers = nullptr;
+    if (postBody) {
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        headers = curl_slist_append(headers, "Accept: application/json");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody->c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(postBody->size()));
+    }
+
     CURLcode code = curl_easy_perform(curl);
     if (code != CURLE_OK) {
         result.error = errorBuffer[0] ? errorBuffer : curl_easy_strerror(code);
@@ -51,6 +60,13 @@ HttpResult httpGet(const std::string& url, int timeoutSeconds) {
         if (result.status < 200 || result.status >= 300)
             result.error = "HTTP " + std::to_string(result.status);
     }
+    if (headers) curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     return result;
+}
+
+HttpResult httpGet(const std::string& url, int timeoutSeconds) { return perform(url, nullptr, timeoutSeconds); }
+
+HttpResult httpPost(const std::string& url, const std::string& jsonBody, int timeoutSeconds) {
+    return perform(url, &jsonBody, timeoutSeconds);
 }

@@ -78,6 +78,7 @@ private:
     bool allTerms_ = false;
     int typeIdx_ = 0;                    // 0 = all, 1 = internships only, 2 = co-ops only
     int autoRefreshIdx_ = 2;             // index into kAutoRefreshMinutes
+    bool deepSearch_ = true;             // mirrors "discover" in sources.json
     std::string lastNotice_;             // one-line status shown in the toolbar
 
     // ----- profile form state -----

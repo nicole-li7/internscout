@@ -77,7 +77,7 @@ void printHelp() {
               << "  applied N         mark result N as applied\n"
               << "  saved             list bookmarks and applications\n"
               << "  profile           print your profile\n"
-              << "  sources           list job boards being checked and where to edit them\n\n"
+              << "  sources           list job boards being checked; `sources deep on|off`\n\n"
               << ui::header("Options") << "\n"
               << "  --refresh, -r     re-download listings even if the cache is fresh\n"
               << "  --all, -a         include weak matches and other terms\n"
@@ -101,10 +101,16 @@ Profile requireProfile() {
 }
 
 // Get listings: from the cache if it is fresh enough, otherwise from the internet.
+// Saved/applied listings are always kept (see reconcilePins in store.hpp).
 ListingCache getListings(bool forceRefresh, bool quiet = false) {
     const std::time_t maxAge = 6 * 60 * 60;  // 6 hours
     ListingCache cache;
     bool haveCache = loadCache(cache);
+    {
+        // Pin saved/applied listings from the cache we already have *before* replacing it.
+        State st = loadState();
+        if (reconcilePins(st, cache.listings)) saveState(st);
+    }
     if (haveCache && !forceRefresh && std::time(nullptr) - cache.fetchedAt < maxAge) {
         if (!quiet) {
             long minutes = (std::time(nullptr) - cache.fetchedAt) / 60;
@@ -117,7 +123,7 @@ ListingCache getListings(bool forceRefresh, bool quiet = false) {
     SourceConfig config = loadSourceConfig(sourcesPath());
     std::vector<FetchReport> reports;
     std::vector<Listing> fresh = fetchAllSources(config, reports, [&](const std::string& what) {
-        if (!quiet) ui::status("Fetching " + what + "...");
+        if (!quiet) ui::status(what);
     });
     ui::clearStatus();
 
@@ -130,8 +136,12 @@ ListingCache getListings(bool forceRefresh, bool quiet = false) {
     if (!quiet) {
         std::cout << ui::ok(std::to_string(total) + " internship listings from " + std::to_string(okSources) +
                             " sources") << "\n";
-        if (!failures.empty())
-            std::cout << ui::dim("  skipped: " + text::join(failures, ", ")) << "\n";
+        if (!failures.empty()) {
+            std::vector<std::string> shown(failures.begin(), failures.begin() + std::min<size_t>(5, failures.size()));
+            std::string more = failures.size() > 5 ? ", and " + std::to_string(failures.size() - 5) + " more" : "";
+            std::cout << ui::dim("  " + std::to_string(failures.size()) + " boards skipped (no public API or removed): " +
+                                 text::join(shown, ", ") + more) << "\n";
+        }
     }
 
     if (fresh.empty()) {
@@ -145,6 +155,19 @@ ListingCache getListings(bool forceRefresh, bool quiet = false) {
     cache.fetchedAt = std::time(nullptr);
     cache.listings = std::move(fresh);
     saveCache(cache);
+    {
+        State st = loadState();
+        if (reconcilePins(st, cache.listings)) saveState(st);
+    }
+    return cache;
+}
+
+// For commands that only read the cache (show / open / saved ...).
+ListingCache cachedListings() {
+    ListingCache cache;
+    loadCache(cache);
+    State st = loadState();
+    if (reconcilePins(st, cache.listings)) saveState(st);
     return cache;
 }
 
@@ -176,6 +199,7 @@ void printMatchRow(int index, const Match& m, const State& state) {
 
     std::string location = l.locations.empty() ? "-" : l.locations.front();
     if (l.locations.size() > 1) location += " +" + std::to_string(l.locations.size() - 1);
+    if (l.closed) location = "(closed) " + location;
 
     std::cout << text::pad(std::to_string(index) + ".", 4)
               << ui::scoreColour(m.score, text::pad(std::to_string(m.score), 5))
@@ -208,7 +232,8 @@ void printListingDetail(const Match& m, const State& state) {
     row("Sponsorship", l.sponsorship);
     row("Posted", text::formatDate(l.datePosted));
     row("Source", l.source);
-    row("Status", state.applied.count(l.id) ? "applied" : state.saved.count(l.id) ? "saved" : "");
+    row("Status", std::string(state.applied.count(l.id) ? "applied" : state.saved.count(l.id) ? "saved" : "") +
+                  (l.closed ? " (posting no longer listed)" : ""));
     row("Apply", ui::cyan(l.url));
     if (!l.description.empty()) {
         std::cout << "\n" << ui::dim(text::truncate(l.description, 2000)) << "\n";
@@ -346,8 +371,7 @@ int cmdWatch(const Options& o) {
 int cmdShow(const Options& o) {
     if (o.positional.empty()) { std::cout << ui::fail("usage: internscout show N") << "\n"; return 1; }
     Profile profile = requireProfile();
-    ListingCache cache;
-    loadCache(cache);
+    ListingCache cache = cachedListings();
     State state = loadState();
     const Listing* l = resolveResult(o.positional[0], state, cache.listings);
     if (!l) return 1;
@@ -357,8 +381,7 @@ int cmdShow(const Options& o) {
 
 int cmdOpen(const Options& o) {
     if (o.positional.empty()) { std::cout << ui::fail("usage: internscout open N") << "\n"; return 1; }
-    ListingCache cache;
-    loadCache(cache);
+    ListingCache cache = cachedListings();
     State state = loadState();
     const Listing* l = resolveResult(o.positional[0], state, cache.listings);
     if (!l) return 1;
@@ -369,8 +392,7 @@ int cmdOpen(const Options& o) {
 
 int cmdMark(const Options& o, const std::string& what) {
     if (o.positional.empty()) { std::cout << ui::fail("usage: internscout " + what + " N") << "\n"; return 1; }
-    ListingCache cache;
-    loadCache(cache);
+    ListingCache cache = cachedListings();
     State state = loadState();
     const Listing* l = resolveResult(o.positional[0], state, cache.listings);
     if (!l) return 1;
@@ -384,8 +406,7 @@ int cmdMark(const Options& o, const std::string& what) {
 
 int cmdSaved() {
     Profile profile = requireProfile();
-    ListingCache cache;
-    loadCache(cache);
+    ListingCache cache = cachedListings();
     State state = loadState();
     std::vector<const Listing*> items;
     for (const Listing& l : cache.listings)
@@ -404,14 +425,33 @@ int cmdSaved() {
     return 0;
 }
 
-int cmdSources() {
+int cmdSources(const Options& o) {
     SourceConfig cfg = loadSourceConfig(sourcesPath());
+    if (!o.positional.empty()) {  // `internscout sources deep on|off`
+        std::string what = o.positional[0];
+        std::string val = o.positional.size() > 1 ? text::lower(o.positional[1]) : "";
+        if (what == "deep" && (val == "on" || val == "off")) {
+            cfg.discover = (val == "on");
+            saveSourceConfig(sourcesPath(), cfg);
+            std::cout << ui::ok(std::string("Deep search ") + (cfg.discover ? "on" : "off") +
+                                ". Run `internscout search --refresh` to use it.") << "\n";
+            return 0;
+        }
+        std::cout << ui::fail("usage: internscout sources [deep on|off]") << "\n";
+        return 1;
+    }
     std::cout << ui::header("Sources") << "\n";
-    std::cout << "  Simplify feed   " << (cfg.simplify ? ui::green("on") : ui::dim("off")) << "\n";
-    std::cout << "  Greenhouse      " << text::join(cfg.greenhouse, ", ") << "\n";
-    std::cout << "  Ashby           " << text::join(cfg.ashby, ", ") << "\n";
-    std::cout << "  Lever           " << text::join(cfg.lever, ", ") << "\n\n";
-    std::cout << ui::dim("Edit " + sourcesPath() + " to add companies (use the slug from their careers URL).") << "\n";
+    std::cout << "  Feeds            " << cfg.feeds.size() << " community internship lists\n";
+    std::cout << "  Deep search      " << (cfg.discover ? ui::green("on") : ui::dim("off"))
+              << ui::dim("  (auto-discovers every company job board linked from the feeds)") << "\n";
+    std::cout << "  Greenhouse       " << text::join(cfg.greenhouse, ", ") << "\n";
+    std::cout << "  Ashby            " << text::join(cfg.ashby, ", ") << "\n";
+    std::cout << "  Lever            " << text::join(cfg.lever, ", ") << "\n";
+    std::cout << "  SmartRecruiters  " << text::join(cfg.smartrecruiters, ", ") << "\n";
+    std::cout << "  Workable         " << text::join(cfg.workable, ", ") << "\n";
+    std::cout << "  Workday          " << text::join(cfg.workday, ", ") << "\n\n";
+    std::cout << ui::dim("Edit " + sourcesPath() + " to add companies by hand (use the slug from their careers URL).") << "\n";
+    std::cout << ui::dim("`internscout sources deep off` limits the search to the feeds plus the boards listed above.") << "\n";
     return 0;
 }
 
@@ -429,7 +469,7 @@ int main(int argc, char** argv) {
     if (c == "save" || c == "unsave" || c == "applied") return cmdMark(o, c);
     if (c == "saved") return cmdSaved();
     if (c == "profile") { Profile p = requireProfile(); printProfile(p); return 0; }
-    if (c == "sources") return cmdSources();
+    if (c == "sources") return cmdSources(o);
     if (c == "help" || c == "--help" || c == "-h") { printHelp(); return 0; }
 
     std::cout << ui::fail("Unknown command: " + c) << "\n\n";

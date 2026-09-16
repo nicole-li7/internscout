@@ -43,13 +43,21 @@ Top internships for Nicole (Summer 2027)
 | Source | What it is |
 |---|---|
 | **Simplify** internship list | A community-maintained list of tech internships on GitHub (~4,000 active postings, updated daily) |
-| **Greenhouse** job boards | The public API of the job-board software many companies use (Stripe, Airbnb, Databricks, ...) |
-| **Ashby** job boards | Same idea (Notion, OpenAI, Ramp, Linear, ...) |
-| **Lever** job boards | Same idea |
+| **Community list** | A second, smaller GitHub internship list |
+| **Company job boards** | Direct queries to the public APIs of the software companies host their careers pages on: Greenhouse, Ashby, Lever, Workday, SmartRecruiters and Workable |
 
-Only internship / co-op titles are kept from company boards. The company list lives in
-`sources.json` in the data folder (run `internscout sources` to see the path) and you can add
-any company by its careers-page slug.
+With **Deep search** on (the default), InternScout reads every link in the internship
+lists, works out which company job boards they point at (about 2,400 boards) and queries
+each one directly. That picks up every internship those companies have posted, including
+small companies and roles nobody submitted to the lists: roughly 13,000 postings from
+1,700 companies instead of 4,000 from 800. A deep refresh takes a minute or two and runs
+in the background; turn it off in the toolbar for a quick refresh of just the lists.
+
+Only internship / co-op titles are kept from company boards. Extra boards can be added by
+hand in `sources.json` in the data folder (run `internscout sources` to see the path).
+
+Anything you save or mark as applied is copied into your own data, so it stays on the
+Saved / Applied pages even after the posting closes (it is then shown as closed).
 
 ## Build
 
@@ -76,6 +84,7 @@ internscout save 3           # bookmark it
 internscout applied 3        # mark it as applied
 internscout saved            # list bookmarks and applications
 internscout watch            # keep checking every 30 min; macOS notification on new matches
+internscout sources          # what is being searched; `sources deep off` for quick mode
 ```
 
 Useful flags:

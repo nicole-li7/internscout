@@ -14,3 +14,6 @@ struct HttpResult {
 
 // Perform an HTTP GET. Follows redirects, asks for gzip, times out after `timeoutSeconds`.
 HttpResult httpGet(const std::string& url, int timeoutSeconds = 60);
+
+// Perform an HTTP POST with a JSON body (some job boards only offer a POST search API).
+HttpResult httpPost(const std::string& url, const std::string& jsonBody, int timeoutSeconds = 60);
