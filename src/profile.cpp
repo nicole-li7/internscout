@@ -5,6 +5,7 @@
 #include <iostream>
 
 #include "json.hpp"
+#include "options.hpp"
 #include "text.hpp"
 #include "ui.hpp"
 
@@ -16,7 +17,7 @@ static void to_json(json& j, const Profile& p) {
     j = json{
         {"name", p.name},           {"school", p.school},       {"major", p.major},
         {"minor", p.minor},         {"level", p.level},         {"yearOfStudy", p.yearOfStudy},
-        {"gradYear", p.gradYear},   {"keywords", p.keywords},   {"locations", p.locations},
+        {"gradYear", p.gradYear},   {"interests", p.interests}, {"keywords", p.keywords},   {"locations", p.locations},
         {"country", p.country},     {"remoteOk", p.remoteOk},   {"needsSponsorship", p.needsSponsorship},
         {"terms", p.terms},
     };
@@ -30,12 +31,28 @@ static void from_json(const json& j, Profile& p) {
     p.level = j.value("level", "Bachelor's");
     p.yearOfStudy = j.value("yearOfStudy", 0);
     p.gradYear = j.value("gradYear", 0);
+    p.interests = j.value("interests", std::vector<std::string>{});
     p.keywords = j.value("keywords", std::vector<std::string>{});
     p.locations = j.value("locations", std::vector<std::string>{});
     p.country = j.value("country", "Canada");
     p.remoteOk = j.value("remoteOk", true);
     p.needsSponsorship = j.value("needsSponsorship", false);
     p.terms = j.value("terms", std::vector<std::string>{});
+}
+
+std::vector<std::string> Profile::allKeywords() const {
+    std::vector<std::string> out;
+    for (const std::string& label : interests)
+        for (const std::string& kw : options::keywordsForInterest(label)) out.push_back(kw);
+    for (const std::string& kw : keywords) out.push_back(kw);
+    return out;
+}
+
+std::vector<std::string> Profile::allPlaces() const {
+    std::vector<std::string> out;
+    for (const std::string& label : locations)
+        for (const std::string& place : options::placesForLocation(label)) out.push_back(place);
+    return out;
 }
 
 bool loadProfile(const std::string& path, Profile& out) {
@@ -173,8 +190,9 @@ void printProfile(const Profile& p) {
     row("Major", p.major + (p.minor.empty() ? "" : " (minor: " + p.minor + ")"));
     row("Level", p.level + (p.yearOfStudy ? ", year " + std::to_string(p.yearOfStudy) : ""));
     row("Graduating", p.gradYear ? std::to_string(p.gradYear) : "");
-    row("Interests", text::join(p.keywords, ", "));
-    row("Locations", text::join(p.locations, ", "));
+    row("Interests", p.interests.empty() && p.keywords.empty() ? "any" : text::join(p.interests, ", ") +
+                     (p.keywords.empty() ? "" : (p.interests.empty() ? "" : ", ") + text::join(p.keywords, ", ")));
+    row("Locations", p.locations.empty() ? "anywhere" : text::join(p.locations, ", "));
     row("Country", p.country);
     row("Remote OK", p.remoteOk ? "yes" : "no");
     row("Needs US visa", p.needsSponsorship ? "yes" : "no");

@@ -33,6 +33,9 @@ void clearStatus();
 // Send a macOS notification (used by `watch`). Silently does nothing on other platforms.
 void notify(const std::string& title, const std::string& body);
 
+// Open a URL in the default browser.
+void openInBrowser(const std::string& url);
+
 // How wide is the terminal? Falls back to 120 when unknown.
 int terminalWidth();
 

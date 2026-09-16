@@ -358,15 +358,7 @@ int cmdOpen(const Options& o) {
     const Listing* l = resolveResult(o.positional[0], state, cache.listings);
     if (!l) return 1;
     std::cout << ui::ok("Opening " + l->company + " - " + l->title) << "\n" << ui::dim(l->url) << "\n";
-    // Single-quote the URL for the shell, escaping any single quotes inside it.
-    std::string quoted = "'";
-    for (char c : l->url) quoted += (c == '\'') ? std::string("'\\''") : std::string(1, c);
-    quoted += "'";
-#ifdef __APPLE__
-    std::system(("open " + quoted).c_str());
-#else
-    std::system(("xdg-open " + quoted).c_str());
-#endif
+    ui::openInBrowser(l->url);
     return 0;
 }
 

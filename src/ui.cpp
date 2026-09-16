@@ -70,6 +70,18 @@ void notify(const std::string& title, const std::string& body) {
 #endif
 }
 
+void openInBrowser(const std::string& url) {
+    // Single-quote the URL for the shell, escaping any single quotes inside it.
+    std::string quoted = "'";
+    for (char c : url) quoted += (c == '\'') ? std::string("'\\''") : std::string(1, c);
+    quoted += "'";
+#ifdef __APPLE__
+    std::system(("open " + quoted).c_str());
+#else
+    std::system(("xdg-open " + quoted).c_str());
+#endif
+}
+
 int terminalWidth() {
     struct winsize w{};
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 40) return w.ws_col;

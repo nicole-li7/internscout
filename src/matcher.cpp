@@ -94,7 +94,7 @@ int termFit(const Listing& l, const Profile& p) {
 }
 
 std::string bestLocationMatch(const Listing& l, const Profile& p) {
-    for (const std::string& pref : p.locations)
+    for (const std::string& pref : p.allPlaces())
         for (const std::string& loc : l.locations)
             if (text::contains(loc, pref)) return loc;
     return "";
@@ -142,9 +142,11 @@ static Match scoreListing(const Listing& l, const Profile& p) {
     std::vector<std::string> hits;
 
     // User keywords count double: they told us what they want.
-    for (const std::string& kw : p.keywords) {
+    // (Interest labels like "Machine Learning / AI" expand to several words; see options.cpp.)
+    for (const std::string& kw : p.allKeywords()) {
         if (text::containsWord(haystack, kw)) { relevance += 14; hits.push_back(kw); }
         else if (!deep.empty() && text::containsWord(deep, kw)) { relevance += 6; hits.push_back(kw); }
+        if (hits.size() >= 4) break;  // enough evidence; keeps the "matches:" line short
     }
     const MajorRule* rule = findRule(p.major);
     const MajorRule* minorRule = p.minor.empty() ? nullptr : findRule(p.minor);
@@ -169,7 +171,7 @@ static Match scoreListing(const Listing& l, const Profile& p) {
     if (!locHit.empty()) { score += 20; m.reasons.push_back(locHit); }
     else if (l.remote && p.remoteOk) { score += 14; m.reasons.push_back("remote"); }
     else if (inCountry(l, p.country)) { score += 10; m.reasons.push_back(p.country); }
-    else if (p.locations.empty()) { score += 8; }
+    else if (p.locations.empty()) { score += 12; m.reasons.push_back("anywhere"); }
 
     // 4. Degree level (up to 10, or a penalty).
     if (l.degrees.empty()) {

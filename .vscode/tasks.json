@@ -16,14 +16,21 @@
       "dependsOn": "configure"
     },
     {
-      "label": "search",
+      "label": "run app",
+      "type": "shell",
+      "command": "open ./build/InternScout.app",
+      "dependsOn": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "search (command line)",
       "type": "shell",
       "command": "./build/internscout search",
       "dependsOn": "build",
       "problemMatcher": []
     },
     {
-      "label": "install to PATH",
+      "label": "install (app + command line)",
       "type": "shell",
       "command": "cmake --install build",
       "dependsOn": "build",

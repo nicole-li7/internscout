@@ -1,11 +1,27 @@
 # InternScout
 
-A command-line tool that searches the web for internships and ranks them for **you**.
-Tell it your year, major, interests and where you want to work; it pulls thousands of
-live internship postings, scores each one against your profile, and tells you what is
-new since you last checked.
+A Mac app that searches the web for internships and ranks them for **you**.
+Pick your university, degree level, year, major, interests and where you want to work;
+it pulls thousands of live internship postings, scores each one against your profile,
+and tells you what is new since you last checked.
 
-Written in C++17. Runs on macOS (Linux should work too).
+Written in C++17 with SDL2 + Dear ImGui for the window. A command-line version
+(`internscout`) is built alongside it and shares the same profile and data.
+
+## The app
+
+- **My profile** - dropdowns for university, major, degree level, year of study and
+  graduation year; checkbox lists for interests, preferred locations and terms, each
+  with an "Any" option; add your own interest or city if it is not listed.
+- **Internships** - every matching posting ranked by score, with a NEW badge for ones
+  that appeared since you last looked. Click a row for details and the reasons behind
+  its score; double-click (or press *Open & apply*) to open it in your browser.
+  Filter by text, minimum score, or include other terms.
+- **Saved & applied** - bookmarks and applications you have marked.
+- **Auto-refresh** - leave it open and it re-checks every 15-120 minutes and sends a
+  macOS notification when a good new match appears.
+
+## The command line
 
 ```
 $ internscout search
@@ -36,17 +52,19 @@ any company by its careers-page slug.
 
 ## Build
 
-You need CMake and a C++17 compiler (Xcode command line tools on macOS). libcurl ships with macOS.
+You need CMake, a C++17 compiler (Xcode command line tools) and SDL2 (`brew install sdl2`).
+libcurl and OpenGL ship with macOS.
 
 ```sh
 cmake -S . -B build
 cmake --build build
-cmake --install build        # puts `internscout` on your PATH (/opt/homebrew/bin)
+cmake --install build        # InternScout.app -> /Applications, `internscout` -> /opt/homebrew/bin
 ```
 
-Or open the folder in VS Code and press **Cmd+Shift+B**.
+Or open the folder in VS Code and press **Cmd+Shift+B**. The built app is at
+`build/InternScout.app` and is self-contained (SDL is copied into the bundle).
 
-## Use
+## Command-line use
 
 ```sh
 internscout setup            # answer a few questions (year, major, interests, locations, term)
@@ -99,6 +117,9 @@ Nothing about you is sent anywhere; the app only downloads public job listings.
 ## Project layout
 
 ```
+src/gui/main_gui.cpp  window, OpenGL and event loop (SDL2 + Dear ImGui)
+src/gui/app.*         the app: profile form, results table, detail panel, background refresh
+src/options.*         dropdown / checkbox choices and how they expand into search words
 src/main.cpp      command-line interface
 src/profile.*     profile questions + JSON save/load
 src/sources.*     fetchers for each job board
@@ -107,5 +128,6 @@ src/store.*       cache and seen/saved/applied state
 src/http.*        libcurl wrapper
 src/text.*        string helpers
 src/ui.*          terminal colours, tables, notifications
-third_party/      nlohmann/json (single header)
+third_party/      nlohmann/json (single header), Dear ImGui
+tools/            app icon generator, bundle script
 ```

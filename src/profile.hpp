@@ -14,14 +14,20 @@ struct Profile {
     std::string level = "Bachelor's";     // "Bachelor's", "Master's", "PhD"
     int yearOfStudy = 0;                  // 1 = first year ... (0 = not applicable / unknown)
     int gradYear = 0;                     // expected graduation year, e.g. 2028
-    std::vector<std::string> keywords;    // interests: "machine learning", "backend", "fintech"...
-    std::vector<std::string> locations;   // preferred: "Vancouver", "Toronto", "Seattle"...
+    std::vector<std::string> interests;   // labels picked in the app: "Machine Learning / AI"... (empty = any)
+    std::vector<std::string> keywords;    // extra free-text keywords: "fintech", "rust"...
+    std::vector<std::string> locations;   // preferred: "Vancouver", "Toronto", "Seattle"... (empty = anywhere)
     std::string country = "Canada";       // home country (used to prefer same-country roles)
     bool remoteOk = true;                 // happy with remote roles?
     bool needsSponsorship = false;        // needs a visa/work authorisation for the US?
     std::vector<std::string> terms;       // wanted terms: "Summer 2027", "Winter 2027" ...
 
     bool isComplete() const { return !major.empty() && !terms.empty(); }
+
+    // Every word worth looking for: expanded interests + custom keywords.
+    std::vector<std::string> allKeywords() const;
+    // Every place name worth matching: expanded location labels.
+    std::vector<std::string> allPlaces() const;
 };
 
 // Ask the user questions in the terminal and build a profile.

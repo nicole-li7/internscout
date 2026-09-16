@@ -2,6 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "InternScout app",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/InternScout.app/Contents/MacOS/InternScout",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build"
+    },
+    {
       "name": "internscout search",
       "type": "lldb",
       "request": "launch",
