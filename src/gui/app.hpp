@@ -38,6 +38,7 @@ private:
     void drawProfilePage();
     void drawResultsPage();
     void drawSavedPage();
+    void drawAppliedPage();
     void drawScoringPage();
     void drawToolbar();
     void drawTable(const std::vector<int>& rows, const char* tableId);
@@ -65,7 +66,8 @@ private:
     // ----- results -----
     std::vector<Match> ranked_;          // every listing, best first
     std::vector<int> visible_;           // indexes into ranked_ that pass the filters
-    std::vector<int> savedRows_;         // indexes into ranked_ that are saved/applied
+    std::vector<int> savedRows_;         // indexes into ranked_ that are bookmarked
+    std::vector<int> appliedRows_;       // indexes into ranked_ that are marked applied
     std::set<std::string> newIds_;       // listings first seen during this session
     int selected_ = -1;                  // index into ranked_ of the highlighted row
     bool filtersDirty_ = true;

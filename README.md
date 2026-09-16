@@ -17,7 +17,8 @@ Written in C++17 with SDL2 + Dear ImGui for the window. A command-line version
   that appeared since you last looked. Click a row for details and the reasons behind
   its score; double-click (or press *Open & apply*) to open it in your browser.
   Filter by text, minimum score, or include other terms.
-- **Saved & applied** - bookmarks and applications you have marked.
+- **Saved** and **Applied** - bookmarks and the applications you have marked.
+- **Explanation** - how the match score is calculated.
 - **Auto-refresh** - leave it open and it re-checks every 15-120 minutes and sends a
   macOS notification when a good new match appears.
 

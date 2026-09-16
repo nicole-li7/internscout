@@ -294,11 +294,13 @@ void App::refilter() {
     filtersDirty_ = false;
     visible_.clear();
     savedRows_.clear();
+    appliedRows_.clear();
     std::string needle = text::trim(filterText_);
     for (size_t i = 0; i < ranked_.size(); ++i) {
         const Match& m = ranked_[i];
         const Listing& l = *m.listing;
-        if (state_.saved.count(l.id) || state_.applied.count(l.id)) savedRows_.push_back(static_cast<int>(i));
+        if (state_.applied.count(l.id)) appliedRows_.push_back(static_cast<int>(i));
+        else if (state_.saved.count(l.id)) savedRows_.push_back(static_cast<int>(i));
         if (!allTerms_ && m.termMismatch) continue;
         if (m.score < minScore_) continue;
         if (!needle.empty() && !text::contains(l.title, needle) && !text::contains(l.company, needle) &&
@@ -339,11 +341,15 @@ void App::frame() {
         auto flag = [&](int i) { return requestTab_ == i ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None; };
         if (ImGui::BeginTabItem("My profile", nullptr, flag(0))) { drawProfilePage(); ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem("Internships", nullptr, flag(1))) { drawResultsPage(); ImGui::EndTabItem(); }
-        std::string savedLabel = "Saved & applied";
+        std::string savedLabel = "Saved";
         if (!savedRows_.empty()) savedLabel += " (" + std::to_string(savedRows_.size()) + ")";
         savedLabel += "###saved";
         if (ImGui::BeginTabItem(savedLabel.c_str(), nullptr, flag(2))) { drawSavedPage(); ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("How scoring works", nullptr, flag(3))) { drawScoringPage(); ImGui::EndTabItem(); }
+        std::string appliedLabel = "Applied";
+        if (!appliedRows_.empty()) appliedLabel += " (" + std::to_string(appliedRows_.size()) + ")";
+        appliedLabel += "###applied";
+        if (ImGui::BeginTabItem(appliedLabel.c_str(), nullptr, flag(3))) { drawAppliedPage(); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Explanation", nullptr, flag(4))) { drawScoringPage(); ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
     requestTab_ = -1;
@@ -651,6 +657,17 @@ void App::drawSavedPage() {
     }
     ImGui::Spacing();
     drawTable(savedRows_, "saved");
+    drawDetail();
+}
+
+void App::drawAppliedPage() {
+    if (appliedRows_.empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(kMuted, "Nothing here yet. Select a listing and press Mark applied once you have applied.");
+        return;
+    }
+    ImGui::Spacing();
+    drawTable(appliedRows_, "applied");
     drawDetail();
 }
 
