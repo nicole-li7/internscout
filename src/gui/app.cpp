@@ -776,6 +776,75 @@ void App::drawScoringPage() {
     ImGui::TextColored(kGreen, "70 and above");  ImGui::SameLine(); ImGui::TextUnformatted("strong match");
     ImGui::TextColored(kAmber, "45 to 69");      ImGui::SameLine(); ImGui::TextUnformatted("worth a look");
     ImGui::TextColored(kMuted, "below 45");      ImGui::SameLine(); ImGui::TextUnformatted("weak match (hidden by the default Min score of 40)");
+
+    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+    if (headingFont) ImGui::PushFont(headingFont);
+    ImGui::TextUnformatted("Where the listings come from");
+    if (headingFont) ImGui::PopFont();
+    ImGui::TextWrapped("InternScout searches in two layers. Nothing is scraped from web pages: every source is a "
+                       "public data feed or a job board's own public API.");
+    ImGui::Spacing();
+
+    struct Src { const char* name; const char* what; };
+    static const Src sources[] = {
+        {"Internship lists", "Two community-maintained lists on GitHub (the Simplify list and a smaller second list). "
+                             "Thousands of curated internships, updated daily, with term, location, degree and sponsorship details."},
+        {"Company job boards", "Direct queries to the systems companies host their careers pages on: Workday, Greenhouse, Ashby, "
+                               "Lever, SmartRecruiters and Workable. Every internship or co-op on those boards is picked up, "
+                               "including small companies and roles nobody submitted to the lists."},
+        {"Deep search", "When the Deep search box on the Internships tab is ticked (the default), InternScout reads every link in "
+                        "the internship lists, works out which company job board it points at (about 2,400 boards) and queries "
+                        "each one directly. Untick it for a quick refresh of just the lists."},
+    };
+    if (ImGui::BeginTable("sources", 2, flags)) {
+        ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn("What it is", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+        for (const Src& r : sources) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(r.name);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextWrapped("%s", r.what);
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    ImGui::TextUnformatted("How much it covers");
+    if (ImGui::BeginTable("coverage", 3, flags)) {
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn("Quick (lists only)", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Deep search", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+        const char* rowsCov[][3] = {
+            {"Listings", "about 4,000", "about 15,000"},
+            {"Companies", "about 800", "about 1,700"},
+            {"Refresh time", "a few seconds", "2-3 minutes, in the background"},
+        };
+        for (auto& r : rowsCov) {
+            ImGui::TableNextRow();
+            for (int c = 0; c < 3; ++c) { ImGui::TableSetColumnIndex(c); ImGui::TextUnformatted(r[c]); }
+        }
+        ImGui::EndTable();
+    }
+    if (fetchedAt_)
+        ImGui::TextColored(kMuted, "Right now: %d listings loaded, last refreshed %s.", static_cast<int>(listings_.size()),
+                           text::formatDate(fetchedAt_).c_str());
+    ImGui::TextWrapped("The same job often appears both in a list and on the company's board; duplicates are merged and the "
+                       "board version is kept because it has the full description. Boards without a public API "
+                       "(for example iCIMS or Oracle) cannot be searched, so those postings only appear if a list has them.");
+
+    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+    if (headingFont) ImGui::PushFont(headingFont);
+    ImGui::TextUnformatted("Your data");
+    if (headingFont) ImGui::PopFont();
+    ImGui::TextWrapped("Everything is stored on this Mac in ~/Library/Application Support/InternScout: your profile, the "
+                       "downloaded listings, and what you have seen, saved and applied to. Nothing about you is sent anywhere; "
+                       "the app only downloads public job postings.");
+    ImGui::TextWrapped("Every listing you save or mark as applied is copied into your own data, so it stays on the Saved and "
+                       "Applied tabs even after the posting closes or the listings are re-downloaded. A posting that has "
+                       "disappeared from every source is shown as (closed), and your record of it is kept.");
     ImGui::Spacing();
     ImGui::EndChild();
 }
