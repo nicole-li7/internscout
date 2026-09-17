@@ -76,6 +76,8 @@ private:
     char filterText_[128] = "";
     int minScore_ = 40;
     bool allTerms_ = false;
+    bool hideIneligible_ = true;         // hide listings whose stated requirements you do not meet
+    int hiddenIneligible_ = 0;
     int typeIdx_ = 0;                    // 0 = all, 1 = internships only, 2 = co-ops only
     int autoRefreshIdx_ = 2;             // index into kAutoRefreshMinutes
     bool deepSearch_ = true;             // mirrors "discover" in sources.json

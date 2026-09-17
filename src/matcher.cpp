@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <set>
 
+#include "eligibility.hpp"
 #include "text.hpp"
 
 // ---------- major -> keywords ----------
@@ -216,6 +217,7 @@ static Match scoreListing(const Listing& l, const Profile& p) {
     }
 
     m.score = std::max(0, std::min(100, score));
+    m.disqualifiers = disqualifiers(l, p);
     return m;
 }
 

@@ -17,6 +17,8 @@ struct Match {
     std::vector<std::string> reasons;   // positives
     std::vector<std::string> warnings;  // negatives (wrong term, needs PhD, no sponsorship...)
     bool termMismatch = false;          // listing is explicitly for a term the user did not ask for
+    std::vector<std::string> disqualifiers;  // hard requirements the profile fails (see eligibility.hpp)
+    bool ineligible() const { return !disqualifiers.empty(); }
 };
 
 // Score every listing and return them sorted best-first.

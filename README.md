@@ -112,6 +112,15 @@ Each listing gets a score out of 100:
 | Requires citizenship / no sponsorship when you need it | -30 |
 
 Listings explicitly for a different term are hidden unless you pass `--all`.
+
+**Hard requirements** are handled separately from the score. A posting is hidden as *not
+eligible* (untick "Hide ineligible" in the app, or pass `--all`, to see it with the reason) when
+it states something your profile cannot meet: citizenship of another country or a security
+clearance, no visa sponsorship when you need it, a graduation window you fall outside of
+("graduating by June 2028"), a degree level you do not have (Master's/PhD only), or a year of
+study you have not reached ("rising seniors"). The internship lists carry citizenship,
+sponsorship and degree data; the other checks read the description, which only company job
+boards provide, so wording that is phrased unusually can slip through.
 The reasons for every score are printed under each result, so nothing is a black box.
 
 ## Your data
@@ -135,6 +144,7 @@ src/main.cpp      command-line interface
 src/profile.*     profile questions + JSON save/load
 src/sources.*     fetchers for each job board
 src/matcher.*     scoring a listing against a profile
+src/eligibility.* hard requirements that hide a listing (citizenship, sponsorship, graduation, degree, year)
 src/store.*       cache and seen/saved/applied state
 src/http.*        libcurl wrapper
 src/text.*        string helpers

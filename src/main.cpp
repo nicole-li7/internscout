@@ -80,7 +80,7 @@ void printHelp() {
               << "  sources           list job boards being checked; `sources deep on|off`\n\n"
               << ui::header("Options") << "\n"
               << "  --refresh, -r     re-download listings even if the cache is fresh\n"
-              << "  --all, -a         include weak matches and other terms\n"
+              << "  --all, -a         include weak matches, other terms and listings you are not eligible for\n"
               << "  --limit N, -n N   how many results to show          (default 25)\n"
               << "  --min N, -m N     minimum score 0-100 to show       (default 40)\n"
               << "  --every N, -e N   minutes between checks in watch    (default 30)\n"
@@ -212,6 +212,7 @@ void printMatchRow(int index, const Match& m, const State& state) {
     // Second line: why it scored what it did.
     std::string why = text::join(m.reasons, " | ");
     if (!m.warnings.empty()) why += (why.empty() ? "" : "  ") + ui::yellow("! " + text::join(m.warnings, ", "));
+    if (m.ineligible()) why += (why.empty() ? "" : "  ") + ui::red("NOT ELIGIBLE: " + text::join(m.disqualifiers, ", "));
     if (!why.empty()) std::cout << "         " << ui::dim(why) << "\n";
 }
 
@@ -225,6 +226,7 @@ void printListingDetail(const Match& m, const State& state) {
     row("Score", ui::scoreColour(m.score, std::to_string(m.score) + "/100"));
     row("Why", text::join(m.reasons, ", "));
     if (!m.warnings.empty()) row("Watch out", ui::yellow(text::join(m.warnings, ", ")));
+    if (m.ineligible()) row("Not eligible", ui::red(text::join(m.disqualifiers, ", ")));
     row("Location", text::join(l.locations, "; "));
     row("Term", text::join(l.terms, ", "));
     row("Degrees", text::join(l.degrees, ", "));
@@ -285,8 +287,9 @@ int cmdSearch(const Options& o) {
 
     // Keep the ones worth showing.
     std::vector<const Match*> shown;
-    int newCount = 0;
+    int newCount = 0, hiddenIneligible = 0;
     for (const Match& m : ranked) {
+        if (!o.all && m.ineligible()) { ++hiddenIneligible; continue; }
         if (!o.all && (m.termMismatch || m.score < o.minScore)) continue;
         if (o.type == "intern" && looksLikeCoop(m.listing->title)) continue;
         if (o.type == "coop" && !looksLikeCoop(m.listing->title)) continue;
@@ -312,7 +315,9 @@ int cmdSearch(const Options& o) {
                               ". Try `--min 20`, `--all`, or add more interests with `internscout setup`.") << "\n";
     else
         std::cout << "\n" << ui::dim("show N for details, open N to apply, save N to bookmark.  Showing " +
-                                     std::to_string(shown.size()) + " of " + std::to_string(ranked.size()) + " listings.")
+                                     std::to_string(shown.size()) + " of " + std::to_string(ranked.size()) + " listings" +
+                                     (hiddenIneligible ? ", " + std::to_string(hiddenIneligible) +
+                                      " hidden because you don't meet a stated requirement (--all shows them)" : "") + ".")
                   << "\n";
 
     markAllSeen(state, cache.listings);
@@ -334,7 +339,7 @@ int cmdWatch(const Options& o) {
 
         std::vector<const Match*> fresh;
         for (const Match& m : ranked)
-            if (state.isNew(m.listing->id) && !m.termMismatch && m.score >= o.minScore) fresh.push_back(&m);
+            if (state.isNew(m.listing->id) && !m.termMismatch && !m.ineligible() && m.score >= o.minScore) fresh.push_back(&m);
 
         std::time_t now = std::time(nullptr);
         char stamp[32];

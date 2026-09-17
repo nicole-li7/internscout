@@ -272,7 +272,7 @@ void App::pollFetch() {
     int goodNew = 0;
     const Match* top = nullptr;
     for (const Match& m : ranked_) {
-        if (fresh.count(m.listing->id) && !m.termMismatch && m.score >= minScore_) {
+        if (fresh.count(m.listing->id) && !m.termMismatch && !m.ineligible() && m.score >= minScore_) {
             if (!top) top = &m;
             ++goodNew;
         }
@@ -300,6 +300,7 @@ void App::refilter() {
     visible_.clear();
     savedRows_.clear();
     appliedRows_.clear();
+    hiddenIneligible_ = 0;
     std::string needle = text::trim(filterText_);
     for (size_t i = 0; i < ranked_.size(); ++i) {
         const Match& m = ranked_[i];
@@ -308,6 +309,7 @@ void App::refilter() {
         else if (state_.saved.count(l.id)) savedRows_.push_back(static_cast<int>(i));
         if (!allTerms_ && m.termMismatch) continue;
         if (m.score < minScore_) continue;
+        if (hideIneligible_ && m.ineligible()) { ++hiddenIneligible_; continue; }
         if (typeIdx_ == 1 && looksLikeCoop(l.title)) continue;
         if (typeIdx_ == 2 && !looksLikeCoop(l.title)) continue;
         if (!needle.empty() && !text::contains(l.title, needle) && !text::contains(l.company, needle) &&
@@ -522,6 +524,11 @@ void App::drawToolbar() {
     if (ImGui::Checkbox("All terms", &allTerms_)) filtersDirty_ = true;
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Also show postings for terms you did not select.");
 
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Hide ineligible", &hideIneligible_)) filtersDirty_ = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hide postings that state a requirement you do not meet:\ncitizenship, no visa sponsorship, graduation window,\ndegree level or year of study. See the Explanation tab.");
+
     // status line
     std::string status;
     if (fetching_) {
@@ -575,6 +582,7 @@ void App::drawTable(const std::vector<int>& rows, const char* tableId) {
             ImGui::TableSetColumnIndex(1);
             if (state_.applied.count(l.id)) ImGui::TextColored(kPurple, "APPLIED");
             else if (state_.saved.count(l.id)) ImGui::TextColored(kBlue, "SAVED");
+            else if (m.ineligible()) ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), "NOT ELIG.");
             else if (newIds_.count(l.id)) ImGui::TextColored(kGreen, "NEW");
 
             ImGui::TableSetColumnIndex(2);
@@ -642,6 +650,7 @@ void App::drawDetail() {
     ImGui::SameLine();
     ImGui::TextColored(kMuted, "  %s", text::join(m.reasons, "  |  ").c_str());
     if (!m.warnings.empty()) ImGui::TextColored(kAmber, "Watch out: %s", text::join(m.warnings, ", ").c_str());
+    if (m.ineligible()) ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), "Not eligible: %s", text::join(m.disqualifiers, ", ").c_str());
 
     auto row = [](const char* k, const std::string& v) {
         if (v.empty()) return;
@@ -675,6 +684,10 @@ void App::drawResultsPage() {
     std::string heading = "Top matches for " + (profile_.name.empty() ? "you" : profile_.name) + "  -  " +
                           text::join(profile_.terms, ", ") + "  -  " + std::to_string(visible_.size()) + " shown";
     ImGui::TextUnformatted(heading.c_str());
+    if (hiddenIneligible_ > 0) {
+        ImGui::SameLine();
+        ImGui::TextColored(kMuted, "(%d hidden: requirements you don't meet)", hiddenIneligible_);
+    }
     if (visible_.empty() && !listings_.empty())
         ImGui::TextColored(kAmber, "Nothing scores above %d. Lower the minimum score or add more interests.", minScore_);
     drawTable(visible_, "results");
@@ -776,6 +789,22 @@ void App::drawScoringPage() {
     ImGui::TextColored(kGreen, "70 and above");  ImGui::SameLine(); ImGui::TextUnformatted("strong match");
     ImGui::TextColored(kAmber, "45 to 69");      ImGui::SameLine(); ImGui::TextUnformatted("worth a look");
     ImGui::TextColored(kMuted, "below 45");      ImGui::SameLine(); ImGui::TextUnformatted("weak match (hidden by the default Min score of 40)");
+
+    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+    if (headingFont) ImGui::PushFont(headingFont);
+    ImGui::TextUnformatted("What gets hidden as not eligible");
+    if (headingFont) ImGui::PopFont();
+    ImGui::TextWrapped("Some requirements are not about fit, they rule you out completely. When a posting states one of these "
+                       "and your profile does not meet it, the posting is hidden from the Internships tab (untick "
+                       "\"Hide ineligible\" in the toolbar to see them, marked NOT ELIG. with the reason).");
+    ImGui::BulletText("Citizenship of another country: \"must be a U.S. citizen\", \"requires a security clearance\".");
+    ImGui::BulletText("No visa sponsorship, if you said you need it: \"will not sponsor\", \"authorized to work without sponsorship\".");
+    ImGui::BulletText("A graduation window you fall outside of: \"graduating by June 2028\", \"expected graduation 2027-2028\".");
+    ImGui::BulletText("A degree level you do not have: postings listed for Master's or PhD students only.");
+    ImGui::BulletText("A year of study you have not reached: \"rising seniors\", \"current juniors or seniors\".");
+    ImGui::TextWrapped("The internship lists carry citizenship, sponsorship and degree details as data; the other checks read the "
+                       "posting's description, which only company job boards provide. Wording varies, so a requirement "
+                       "phrased unusually can slip through - always double-check the posting itself.");
 
     ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
     if (headingFont) ImGui::PushFont(headingFont);

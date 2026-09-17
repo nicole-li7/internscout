@@ -13,6 +13,7 @@ endif()
 find_package(CURL REQUIRED)             # ships with macOS
 
 add_library(internscout_core STATIC
+  src/eligibility.cpp
   src/http.cpp
   src/matcher.cpp
   src/options.cpp
