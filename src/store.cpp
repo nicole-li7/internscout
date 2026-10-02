@@ -69,6 +69,10 @@ State loadState() {
         if (j.contains("pinned") && j["pinned"].is_object())
             for (const auto& [id, l] : j["pinned"].items())
                 if (l.is_object()) s.pinned[id] = l.get<Listing>();
+        if (j.contains("outcomes") && j["outcomes"].is_object())
+            for (const auto& [id, tags] : j["outcomes"].items())
+                if (tags.is_array())
+                    for (const auto& t : tags) if (t.is_string()) s.outcomes[id].insert(t.get<std::string>());
         if (j.contains("lastSearch") && j["lastSearch"].is_array())
             for (const auto& id : j["lastSearch"]) if (id.is_string()) s.lastSearch.push_back(id.get<std::string>());
     } catch (const std::exception& e) {
@@ -83,11 +87,15 @@ void saveState(const State& s) {
     for (const auto& [id, t] : s.firstSeen) firstSeen[id] = static_cast<long long>(t);
     json pinned = json::object();
     for (const auto& [id, l] : s.pinned) pinned[id] = l;
+    json outcomes = json::object();
+    for (const auto& [id, tags] : s.outcomes)
+        if (!tags.empty()) outcomes[id] = std::vector<std::string>(tags.begin(), tags.end());
     json j{
         {"firstSeen", firstSeen},
         {"saved", std::vector<std::string>(s.saved.begin(), s.saved.end())},
         {"applied", std::vector<std::string>(s.applied.begin(), s.applied.end())},
         {"pinned", pinned},
+        {"outcomes", outcomes},
         {"lastSearch", s.lastSearch},
     };
     // Write to a temporary file first, then rename, so a crash mid-write can
@@ -131,6 +139,11 @@ bool reconcilePins(State& state, std::vector<Listing>& listings) {
             const std::string newId = listings[dup->second].id;
             if (state.saved.erase(id)) state.saved.insert(newId);
             if (state.applied.erase(id)) state.applied.insert(newId);
+            auto out = state.outcomes.find(id);
+            if (out != state.outcomes.end()) {
+                state.outcomes[newId].insert(out->second.begin(), out->second.end());
+                state.outcomes.erase(id);  // `out` is not used after this
+            }
             state.pinned[newId] = listings[dup->second];
             state.pinned.erase(id);
             changed = true;

@@ -34,10 +34,17 @@ struct State {
     std::set<std::string> applied;                 // ids the user has applied to
     std::map<std::string, Listing> pinned;         // a private copy of every saved/applied listing, so they
                                                    // survive the posting closing or the cache being replaced
+    std::map<std::string, std::set<std::string>> outcomes;  // applied id -> what happened since: any of
+                                                             // "oa", "interview", "rejected" (see kOutcome* below)
     std::vector<std::string> lastSearch;           // ids in the order last printed (1-based for the user)
 
     bool isNew(const std::string& id) const { return firstSeen.find(id) == firstSeen.end(); }
 };
+// The outcome tags you can put on an applied listing (stored in State::outcomes).
+inline const char* const kOutcomeOA = "oa";
+inline const char* const kOutcomeInterview = "interview";
+inline const char* const kOutcomeRejected = "rejected";
+
 State loadState();
 void saveState(const State& state);
 

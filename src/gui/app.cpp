@@ -1,6 +1,7 @@
 #include "app.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 #include "imgui.h"
@@ -20,6 +21,23 @@ const ImVec4 kAmber(0.80f, 0.55f, 0.10f, 1.0f);
 const ImVec4 kBlue(0.16f, 0.45f, 0.85f, 1.0f);
 const ImVec4 kPurple(0.55f, 0.30f, 0.75f, 1.0f);
 const ImVec4 kMuted(0.45f, 0.47f, 0.52f, 1.0f);
+
+// Application outcome colours (Applied tab badges and chart). Checked with a
+// colour-blind simulator so OA, interview and rejected stay distinguishable.
+const ImVec4 kOutcomeOAColor(0.72f, 0.53f, 0.04f, 1.0f);        // #B8860B gold
+const ImVec4 kOutcomeInterviewColor(0.18f, 0.44f, 0.85f, 1.0f); // #2E6FD8 blue
+const ImVec4 kOutcomeRejectedColor(0.76f, 0.25f, 0.05f, 1.0f);  // #C2410C burnt orange
+const ImVec4 kOutcomeWaitingColor(0.62f, 0.64f, 0.68f, 1.0f);   // grey
+
+// The furthest thing that happened to an application, for its badge.
+// Rejected wins, then interview, then OA; nothing yet means still waiting.
+const char* outcomeBadge(const std::set<std::string>& tags, ImVec4& color) {
+    if (tags.count(kOutcomeRejected)) { color = kOutcomeRejectedColor; return "REJECTED"; }
+    if (tags.count(kOutcomeInterview)) { color = kOutcomeInterviewColor; return "INTERVIEW"; }
+    if (tags.count(kOutcomeOA)) { color = kOutcomeOAColor; return "OA"; }
+    color = kPurple;
+    return "APPLIED";
+}
 
 int indexOf(const std::vector<std::string>& list, const std::string& value) {
     for (size_t i = 0; i < list.size(); ++i)
@@ -554,7 +572,7 @@ void App::drawTable(const std::vector<int>& rows, const char* tableId) {
     if (!ImGui::BeginTable(tableId, 6, flags, ImVec2(0, tableHeight))) return;
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("Score", ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 66.0f);
+    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 74.0f);
     ImGui::TableSetupColumn("Company", ImGuiTableColumnFlags_WidthStretch, 1.4f);
     ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthStretch, 3.2f);
     ImGui::TableSetupColumn("Location", ImGuiTableColumnFlags_WidthStretch, 1.6f);
@@ -580,7 +598,13 @@ void App::drawTable(const std::vector<int>& rows, const char* tableId) {
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) ui::openInBrowser(l.url);
 
             ImGui::TableSetColumnIndex(1);
-            if (state_.applied.count(l.id)) ImGui::TextColored(kPurple, "APPLIED");
+            if (state_.applied.count(l.id)) {
+                static const std::set<std::string> kNoTags;
+                auto out = state_.outcomes.find(l.id);
+                ImVec4 col;
+                const char* badge = outcomeBadge(out != state_.outcomes.end() ? out->second : kNoTags, col);
+                ImGui::TextColored(col, "%s", badge);
+            }
             else if (state_.saved.count(l.id)) ImGui::TextColored(kBlue, "SAVED");
             else if (m.ineligible()) ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), "NOT ELIG.");
             else if (newIds_.count(l.id)) ImGui::TextColored(kGreen, "NEW");
@@ -643,6 +667,26 @@ void App::drawDetail() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Copy link")) ImGui::SetClipboardText(l.url.c_str());
+
+    // Once applied: tick off what has happened since. Saved straight away.
+    if (applied) {
+        ImGui::TextColored(kMuted, "What happened?");
+        auto outcomeBox = [&](const char* label, const char* tag) {
+            ImGui::SameLine();
+            bool on = state_.outcomes.count(l.id) && state_.outcomes[l.id].count(tag);
+            if (ImGui::Checkbox(label, &on)) {
+                if (on) state_.outcomes[l.id].insert(tag);
+                else {
+                    state_.outcomes[l.id].erase(tag);
+                    if (state_.outcomes[l.id].empty()) state_.outcomes.erase(l.id);
+                }
+                saveState(state_);
+            }
+        };
+        outcomeBox("Got an online assessment", kOutcomeOA);
+        outcomeBox("Interviewed", kOutcomeInterview);
+        outcomeBox("Rejected", kOutcomeRejected);
+    }
 
     ImGui::Spacing();
     ImVec4 scoreCol = m.score >= 70 ? kGreen : m.score >= 45 ? kAmber : kMuted;
@@ -712,8 +756,120 @@ void App::drawAppliedPage() {
         return;
     }
     ImGui::Spacing();
+    // List / Chart switch
+    if (ImGui::RadioButton("List", !showChart_)) showChart_ = false;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Chart", showChart_)) showChart_ = true;
+    ImGui::SameLine();
+    ImGui::TextColored(kMuted, "  Select a job and tick what happened: online assessment, interviewed, rejected.");
+    ImGui::Spacing();
+    if (showChart_) { drawOutcomeChart(); return; }
     drawTable(appliedRows_, "applied");
     drawDetail();
+}
+
+void App::drawOutcomeChart() {
+    // Count every application (state_.applied, so closed postings count too).
+    int total = 0, oa = 0, interview = 0, rejected = 0, waiting = 0;
+    for (const std::string& id : state_.applied) {
+        ++total;
+        auto out = state_.outcomes.find(id);
+        if (out == state_.outcomes.end() || out->second.empty()) { ++waiting; continue; }
+        if (out->second.count(kOutcomeOA)) ++oa;
+        if (out->second.count(kOutcomeInterview)) ++interview;
+        if (out->second.count(kOutcomeRejected)) ++rejected;
+    }
+    auto pct = [](int n, int of) { return of > 0 ? 100.0f * n / of : 0.0f; };
+
+    ImGui::BeginChild("chartScroll", ImVec2(0, 0));
+    if (headingFont) ImGui::PushFont(headingFont);
+    ImGui::Text("%d application%s", total, total == 1 ? "" : "s");
+    if (headingFont) ImGui::PopFont();
+    ImGui::TextColored(kMuted, "Interview rate %.0f%%   |   Rejection rate %.0f%%   |   OA rate %.0f%%",
+                       pct(interview, total), pct(rejected, total), pct(oa, total));
+    ImGui::Spacing(); ImGui::Spacing();
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const float labelWidth = 170.0f;
+    const float valueWidth = 110.0f;
+    const float barHeight = 22.0f;
+    const float trackWidth = std::max(120.0f, ImGui::GetContentRegionAvail().x - labelWidth - valueWidth);
+    const ImU32 trackColor = ImGui::GetColorU32(ImVec4(0.90f, 0.91f, 0.93f, 1.0f));
+
+    // ---- one bar per outcome, as a share of all applications ----
+    ImGui::TextUnformatted("What happened to your applications");
+    ImGui::Spacing();
+    struct Bar { const char* label; int count; ImVec4 color; const char* tip; };
+    const Bar bars[] = {
+        {"Online assessment", oa, kOutcomeOAColor, "Applications where you got an OA"},
+        {"Interviewed", interview, kOutcomeInterviewColor, "Applications that reached an interview"},
+        {"Rejected", rejected, kOutcomeRejectedColor, "Applications that ended in a rejection"},
+        {"No response yet", waiting, kOutcomeWaitingColor, "Applications with nothing ticked yet"},
+    };
+    for (const Bar& b : bars) {
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        draw->AddText(ImVec2(p.x, p.y + (barHeight - ImGui::GetTextLineHeight()) / 2), ImGui::GetColorU32(ImGuiCol_Text), b.label);
+        ImVec2 t0(p.x + labelWidth, p.y), t1(t0.x + trackWidth, p.y + barHeight);
+        draw->AddRectFilled(t0, t1, trackColor, 4.0f);
+        float w = total > 0 ? trackWidth * b.count / total : 0.0f;
+        if (w > 0) draw->AddRectFilled(t0, ImVec2(t0.x + std::max(w, 4.0f), t1.y), ImGui::GetColorU32(b.color), 4.0f);
+        char value[48];
+        std::snprintf(value, sizeof value, "%d  (%.0f%%)", b.count, pct(b.count, total));
+        draw->AddText(ImVec2(t1.x + 10, p.y + (barHeight - ImGui::GetTextLineHeight()) / 2), ImGui::GetColorU32(ImGuiCol_Text), value);
+        ImGui::Dummy(ImVec2(labelWidth + trackWidth + valueWidth, barHeight));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s: %d of %d (%.1f%%)", b.tip, b.count, total, pct(b.count, total));
+        ImGui::Dummy(ImVec2(0, 4));
+    }
+    ImGui::TextColored(kMuted, "A job can be in more than one row, e.g. an OA followed by a rejection.");
+
+    // ---- interviews vs rejections, split into one bar ----
+    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+    ImGui::TextUnformatted("Interviews vs rejections");
+    ImGui::Spacing();
+    int heard = interview + rejected;
+    if (heard == 0) {
+        ImGui::TextColored(kMuted, "Tick Interviewed or Rejected on some applications to see this split.");
+    } else {
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        const float splitWidth = labelWidth + trackWidth;
+        const float gap = interview > 0 && rejected > 0 ? 2.0f : 0.0f;  // thin gap between the two parts
+        float wInterview = (splitWidth - gap) * interview / heard;
+        ImVec2 a0(p.x, p.y), a1(p.x + wInterview, p.y + barHeight * 1.5f);
+        ImVec2 b0(a1.x + gap, p.y), b1(p.x + splitWidth, a1.y);
+        if (interview > 0)
+            draw->AddRectFilled(a0, a1, ImGui::GetColorU32(kOutcomeInterviewColor), 4.0f,
+                                rejected > 0 ? ImDrawFlags_RoundCornersLeft : ImDrawFlags_RoundCornersAll);
+        if (rejected > 0)
+            draw->AddRectFilled(b0, b1, ImGui::GetColorU32(kOutcomeRejectedColor), 4.0f,
+                                interview > 0 ? ImDrawFlags_RoundCornersRight : ImDrawFlags_RoundCornersAll);
+        ImGui::Dummy(ImVec2(splitWidth, barHeight * 1.5f));
+        if (ImGui::IsItemHovered()) {
+            bool overInterview = ImGui::GetIO().MousePos.x < a1.x;
+            if (overInterview) ImGui::SetTooltip("Interviewed: %d of %d (%.1f%%)", interview, heard, pct(interview, heard));
+            else ImGui::SetTooltip("Rejected: %d of %d (%.1f%%)", rejected, heard, pct(rejected, heard));
+        }
+        // Legend with the numbers, so the colours are never the only clue.
+        auto swatch = [&](const ImVec4& c) {
+            ImVec2 s = ImGui::GetCursorScreenPos();
+            float h = ImGui::GetTextLineHeight();
+            draw->AddRectFilled(ImVec2(s.x, s.y + h * 0.2f), ImVec2(s.x + h * 0.6f, s.y + h * 0.8f), ImGui::GetColorU32(c), 2.0f);
+            ImGui::Dummy(ImVec2(h * 0.6f, h));
+            ImGui::SameLine();
+        };
+        ImGui::Spacing();
+        swatch(kOutcomeInterviewColor);
+        ImGui::Text("Interviewed  %d  (%.0f%%)", interview, pct(interview, heard));
+        ImGui::SameLine(0, 30);
+        swatch(kOutcomeRejectedColor);
+        ImGui::Text("Rejected  %d  (%.0f%%)", rejected, pct(rejected, heard));
+        if (interview > 0 && rejected > 0) {
+            ImGui::SameLine(0, 30);
+            ImGui::TextColored(kMuted, "about 1 interview for every %.1f rejections", static_cast<float>(rejected) / interview);
+        }
+        ImGui::TextColored(kMuted, "Based on %d interview%s and %d rejection%s.", interview, interview == 1 ? "" : "s",
+                           rejected, rejected == 1 ? "" : "s");
+    }
+    ImGui::EndChild();
 }
 
 // ============================================================================

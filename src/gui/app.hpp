@@ -39,6 +39,7 @@ private:
     void drawResultsPage();
     void drawSavedPage();
     void drawAppliedPage();
+    void drawOutcomeChart();    // Applied tab: how your applications turned out
     void drawScoringPage();
     void drawToolbar();
     void drawTable(const std::vector<int>& rows, const char* tableId);
@@ -70,6 +71,7 @@ private:
     std::vector<int> appliedRows_;       // indexes into ranked_ that are marked applied
     std::set<std::string> newIds_;       // listings first seen during this session
     int selected_ = -1;                  // index into ranked_ of the highlighted row
+    bool showChart_ = false;             // Applied tab: chart instead of the list
     bool filtersDirty_ = true;
 
     // ----- toolbar filters -----
