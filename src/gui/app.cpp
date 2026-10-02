@@ -23,15 +23,17 @@ const ImVec4 kPurple(0.55f, 0.30f, 0.75f, 1.0f);
 const ImVec4 kMuted(0.45f, 0.47f, 0.52f, 1.0f);
 
 // Application outcome colours (Applied tab badges and chart). Checked with a
-// colour-blind simulator so OA, interview and rejected stay distinguishable.
+// colour-blind simulator so OA, interview, offer and rejected stay distinguishable.
 const ImVec4 kOutcomeOAColor(0.72f, 0.53f, 0.04f, 1.0f);        // #B8860B gold
 const ImVec4 kOutcomeInterviewColor(0.18f, 0.44f, 0.85f, 1.0f); // #2E6FD8 blue
+const ImVec4 kOutcomeOfferColor(0.06f, 0.58f, 0.53f, 1.0f);     // #0F9488 teal
 const ImVec4 kOutcomeRejectedColor(0.76f, 0.25f, 0.05f, 1.0f);  // #C2410C burnt orange
 const ImVec4 kOutcomeWaitingColor(0.62f, 0.64f, 0.68f, 1.0f);   // grey
 
 // The furthest thing that happened to an application, for its badge.
-// Rejected wins, then interview, then OA; nothing yet means still waiting.
+// Offer wins, then rejected, then interview, then OA; nothing yet means still waiting.
 const char* outcomeBadge(const std::set<std::string>& tags, ImVec4& color) {
+    if (tags.count(kOutcomeOffer)) { color = kOutcomeOfferColor; return "OFFER!"; }
     if (tags.count(kOutcomeRejected)) { color = kOutcomeRejectedColor; return "REJECTED"; }
     if (tags.count(kOutcomeInterview)) { color = kOutcomeInterviewColor; return "INTERVIEW"; }
     if (tags.count(kOutcomeOA)) { color = kOutcomeOAColor; return "OA"; }
@@ -685,6 +687,7 @@ void App::drawDetail() {
         };
         outcomeBox("Got an online assessment", kOutcomeOA);
         outcomeBox("Interviewed", kOutcomeInterview);
+        outcomeBox("Offer", kOutcomeOffer);
         outcomeBox("Rejected", kOutcomeRejected);
     }
 
@@ -770,13 +773,14 @@ void App::drawAppliedPage() {
 
 void App::drawOutcomeChart() {
     // Count every application (state_.applied, so closed postings count too).
-    int total = 0, oa = 0, interview = 0, rejected = 0, waiting = 0;
+    int total = 0, oa = 0, interview = 0, offer = 0, rejected = 0, waiting = 0;
     for (const std::string& id : state_.applied) {
         ++total;
         auto out = state_.outcomes.find(id);
         if (out == state_.outcomes.end() || out->second.empty()) { ++waiting; continue; }
         if (out->second.count(kOutcomeOA)) ++oa;
         if (out->second.count(kOutcomeInterview)) ++interview;
+        if (out->second.count(kOutcomeOffer)) ++offer;
         if (out->second.count(kOutcomeRejected)) ++rejected;
     }
     auto pct = [](int n, int of) { return of > 0 ? 100.0f * n / of : 0.0f; };
@@ -785,8 +789,8 @@ void App::drawOutcomeChart() {
     if (headingFont) ImGui::PushFont(headingFont);
     ImGui::Text("%d application%s", total, total == 1 ? "" : "s");
     if (headingFont) ImGui::PopFont();
-    ImGui::TextColored(kMuted, "Interview rate %.0f%%   |   Rejection rate %.0f%%   |   OA rate %.0f%%",
-                       pct(interview, total), pct(rejected, total), pct(oa, total));
+    ImGui::TextColored(kMuted, "OA rate %.0f%%   |   Interview rate %.0f%%   |   Offer rate %.0f%%   |   Rejection rate %.0f%%",
+                       pct(oa, total), pct(interview, total), pct(offer, total), pct(rejected, total));
     ImGui::Spacing(); ImGui::Spacing();
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -803,6 +807,7 @@ void App::drawOutcomeChart() {
     const Bar bars[] = {
         {"Online assessment", oa, kOutcomeOAColor, "Applications where you got an OA"},
         {"Interviewed", interview, kOutcomeInterviewColor, "Applications that reached an interview"},
+        {"Offer", offer, kOutcomeOfferColor, "Applications that turned into an offer"},
         {"Rejected", rejected, kOutcomeRejectedColor, "Applications that ended in a rejection"},
         {"No response yet", waiting, kOutcomeWaitingColor, "Applications with nothing ticked yet"},
     };
