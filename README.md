@@ -18,12 +18,9 @@ Written in C++17 with SDL2, OpenGL and Dear ImGui for the window. A command-line
 
 ## Demo
 
-![Changing interests, location and visa options re-ranks the postings; clicking one shows its score breakdown](docs/demo.gif)
+![Switching interests to ML / AI and game development re-ranks the postings; clicking one shows its score breakdown](docs/demo.gif)
 
-Recorded from the interactive demo on my portfolio, a JavaScript port of the app's logic running on sample data. [Try it in your browser](https://nicole-li7.github.io/projects/internscout.html).
-
-
----
+Recorded from the macOS app itself with a made-up profile, ranking real postings from the job feeds. There's also a browser version on my portfolio: [try it here](https://nicole-li7.github.io/projects/internscout.html).
 
 ## Contents
 
