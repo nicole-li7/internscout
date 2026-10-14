@@ -16,10 +16,18 @@ anywhere; the app only downloads public job postings.
 Written in C++17 with SDL2, OpenGL and Dear ImGui for the window. A command-line version
 (`internscout`) is built alongside the app and shares the same profile and data.
 
+## Demo
+
+![Changing interests, location and visa options re-ranks the postings; clicking one shows its score breakdown](docs/demo.gif)
+
+Recorded from the interactive demo on my portfolio, a JavaScript port of the app's logic running on sample data. [Try it in your browser](https://nicole-li7.github.io/projects/internscout.html).
+
+
 ---
 
 ## Contents
 
+- [Demo](#demo)
 - [Features at a glance](#features-at-a-glance)
 - [Getting started](#getting-started)
 - [Using the app](#using-the-app)
