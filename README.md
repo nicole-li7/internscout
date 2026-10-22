@@ -22,9 +22,33 @@ Written in C++17 with SDL2, OpenGL and Dear ImGui for the window. A command-line
 
 Recorded from the macOS app itself with a made-up profile, ranking real postings from the job feeds. There's also a browser version on my portfolio: [try it here](https://nicole-li7.github.io/projects/internscout.html).
 
+## What's new
+
+**October 2026: faster, no more freezing.**
+
+- **Re-ranking is about 80x faster** (around 40 s down to about half a second for 15,000
+  postings) and no longer freezes the window. The eligibility checks (citizenship,
+  sponsorship, graduation year, year of study) now read each description once when it's
+  downloaded and save the result with the listing, instead of re-reading every posting
+  each time you change your profile.
+- **Ranking happens in the background**: at startup, after a refresh and after saving your
+  profile. The status line says *Ranking...* while it works, and the table stays usable.
+- **Auto-refresh now defaults to every 2 hours** (it was 30 minutes). A deep search checks
+  about 2,400 job boards, and refreshing too often gets the app rate-limited by them.
+- **Smarter downloading**: connections are reused between job boards. A board that sends
+  nothing for 15 seconds is skipped, while a big one that is still downloading gets up to
+  30. Only rate-limit and server errors are retried.
+- **Timings**: the status line (and the command line, in `[time]` lines) shows how long
+  each step took: downloading, finding boards, merging duplicates, ranking, filtering
+  and loading/saving the cache.
+
+The scores and the eligibility results are exactly the same as before. The first launch
+after updating takes a few extra seconds while it converts the saved listings.
+
 ## Contents
 
 - [Demo](#demo)
+- [What's new](#whats-new)
 - [Features at a glance](#features-at-a-glance)
 - [Getting started](#getting-started)
 - [Using the app](#using-the-app)
@@ -116,7 +140,7 @@ score**. Double-click a row (or press **Open & apply**) to open the posting in y
 | Control | What it does |
 |---|---|
 | Refresh now | Re-download all listings now |
-| Auto-refresh | Off / every 15 min / 30 min / hour / 2 hours, with a notification for good new matches |
+| Auto-refresh | Off / every 15 min / 30 min / hour / 2 hours (the default), with a notification for good new matches |
 | Deep search | On: also search every company board linked from the lists (slower, finds far more). Off: lists only (seconds) |
 | Search box | Filter by company, title or city |
 | Min score | Hide listings below this score (default 40) |
@@ -363,6 +387,7 @@ src/eligibility.*     hard requirements that hide a listing (citizenship, sponso
 src/store.*           listings cache and saved/applied/outcome state
 src/http.*            libcurl wrapper
 src/text.*            string helpers
+src/timing.*          step timings shown in the status line and printed by the CLI
 src/ui.*              terminal colours, tables, notifications
 third_party/          nlohmann/json (single header), Dear ImGui
 tools/                app icon generator, bundle script

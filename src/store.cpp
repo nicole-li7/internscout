@@ -2,13 +2,19 @@
 
 #include <sys/stat.h>
 
+#include <algorithm>
+#include <atomic>
+#include <thread>
+
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 
+#include "eligibility.hpp"
 #include "json.hpp"
 #include "sources.hpp"
+#include "timing.hpp"
 
 using nlohmann::json;
 
@@ -33,6 +39,7 @@ static std::string cachePath() { return dataDir() + "/listings.json"; }
 static std::string statePath() { return dataDir() + "/state.json"; }
 
 bool loadCache(ListingCache& out) {
+    timing::Scope t("cache load");
     std::ifstream in(cachePath());
     if (!in) return false;
     try {
@@ -40,6 +47,22 @@ bool loadCache(ListingCache& out) {
         in >> j;
         out.fetchedAt = static_cast<std::time_t>(j.value("fetchedAt", 0LL));
         out.listings = j.value("listings", std::vector<Listing>{});
+        // Caches from older versions have no eligibility scan yet: do it once (on every core,
+        // std::regex is slow) and save it back.
+        std::vector<Listing*> todo;
+        for (Listing& l : out.listings)
+            if (!eligibilityScanned(l)) todo.push_back(&l);
+        if (!todo.empty()) {
+            timing::Scope t("eligibility rescan");
+            std::atomic<size_t> next{0};
+            std::vector<std::thread> threads;
+            for (unsigned i = 0; i < std::max(1u, std::thread::hardware_concurrency()); ++i)
+                threads.emplace_back([&] {
+                    for (size_t k = next++; k < todo.size(); k = next++) scanEligibility(*todo[k]);
+                });
+            for (auto& th : threads) th.join();
+            saveCache(out);
+        }
         return !out.listings.empty();
     } catch (...) {
         return false;
@@ -47,6 +70,7 @@ bool loadCache(ListingCache& out) {
 }
 
 void saveCache(const ListingCache& cache) {
+    timing::Scope t("cache save");
     json j{{"fetchedAt", static_cast<long long>(cache.fetchedAt)}, {"listings", cache.listings}};
     std::ofstream out(cachePath());
     out << j.dump();
@@ -68,7 +92,11 @@ State loadState() {
             for (const auto& id : j["applied"]) if (id.is_string()) s.applied.insert(id.get<std::string>());
         if (j.contains("pinned") && j["pinned"].is_object())
             for (const auto& [id, l] : j["pinned"].items())
-                if (l.is_object()) s.pinned[id] = l.get<Listing>();
+                if (l.is_object()) {
+                    Listing pin = l.get<Listing>();
+                    if (!eligibilityScanned(pin)) scanEligibility(pin);
+                    s.pinned[id] = std::move(pin);
+                }
         if (j.contains("outcomes") && j["outcomes"].is_object())
             for (const auto& [id, tags] : j["outcomes"].items())
                 if (tags.is_array())

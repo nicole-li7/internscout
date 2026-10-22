@@ -21,6 +21,7 @@ add_library(internscout_core STATIC
   src/sources.cpp
   src/store.cpp
   src/text.cpp
+  src/timing.cpp
   src/ui.cpp
 )
 target_include_directories(internscout_core PUBLIC src third_party)

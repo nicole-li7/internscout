@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 
 #include "imgui.h"
 #include "options.hpp"
 #include "text.hpp"
+#include "timing.hpp"
 #include "ui.hpp"
 
 namespace {
@@ -105,25 +107,33 @@ App::App() {
     deepSearch_ = loadSourceConfig(sourcesPath()).discover;
     loadFormFromProfile();
 
-    ListingCache cache;
-    if (loadCache(cache)) {
-        listings_ = std::move(cache.listings);
-        fetchedAt_ = cache.fetchedAt;
-    }
-    // Saved/applied listings are kept in state.json too, so they never vanish.
-    if (reconcilePins(state_, listings_)) saveState(state_);
-    if (!listings_.empty()) rerank();
+    // Load the cached listings and rank them on a worker thread so the window opens straight away.
+    // pollRank() shows them, pins saved/applied listings, and starts a refresh if the cache is old.
+    Profile profile = profile_;
+    bool rank = profileOk_;
+    rankJob_ = std::async(std::launch::async, [profile, rank] {
+        RankJob job;
+        job.cacheLoad = true;
+        job.profile = profile;
+        ListingCache cache;
+        if (loadCache(cache)) {
+            job.listings = std::move(cache.listings);
+            job.fetchedAt = cache.fetchedAt;
+        }
+        if (rank) job.ranked = rankListings(job.listings, profile);
+        return job;
+    });
     if (!profileOk_) {
         requestTab_ = 0;
         formMessage_ = "Welcome! Fill this in once and InternScout will rank internships for you.";
     } else {
         requestTab_ = 1;
-        if (listings_.empty() || std::time(nullptr) - fetchedAt_ > 6 * 60 * 60) startFetch();
     }
 }
 
 App::~App() {
     if (fetchThread_.joinable()) fetchThread_.join();
+    if (rankJob_.valid()) rankJob_.wait();
 }
 
 // ============================================================================
@@ -218,10 +228,12 @@ void App::saveProfileFromForm() {
     if (p.major.empty()) { formMessage_ = "Please choose a major."; return; }
     profile_ = p;
     profileOk_ = true;
+    ++profileVersion_;
     saveProfile(profilePath(), profile_);
     formMessage_ = "Saved. Your results have been re-ranked.";
     rerank();
-    if (listings_.empty() && !fetching_) startFetch();
+    // (Until the startup cache load finishes, pollRank() decides whether to download.)
+    if (listingsVersion_ > 0 && listings_.empty() && !fetching_) startFetch();
     requestTab_ = 1;
 }
 
@@ -235,19 +247,36 @@ void App::startFetch() {
     fetching_ = true;
     fetchDone_ = false;
     fetchResult_.clear();
+    fetchRanked_.clear();
     fetchReports_.clear();
     { std::lock_guard<std::mutex> lock(fetchMutex_); fetchStatus_ = "Starting..."; }
 
-    fetchThread_ = std::thread([this] {
+    // The thread ranks the new listings itself, with the profile as it is now.
+    Profile profile = profile_;
+    bool rank = profileOk_;
+    int profileVersion = profileVersion_;
+    fetchThread_ = std::thread([this, profile, rank, profileVersion] {
         SourceConfig config = loadSourceConfig(sourcesPath());
         std::vector<FetchReport> reports;
-        std::vector<Listing> result = fetchAllSources(config, reports, [this](const std::string& what) {
+        auto setStatus = [this](const std::string& what) {
             std::lock_guard<std::mutex> lock(fetchMutex_);
             fetchStatus_ = what;
-        });
+        };
+        std::vector<Listing> result = fetchAllSources(config, reports, setStatus);
+        std::time_t finishedAt = std::time(nullptr);
+        if (!result.empty()) saveCache(ListingCache{finishedAt, result});
+        std::vector<Match> ranked;
+        if (rank && !result.empty()) {
+            setStatus("Ranking...");
+            ranked = rankListings(result, profile);
+        }
         std::lock_guard<std::mutex> lock(fetchMutex_);
-        fetchResult_ = std::move(result);
+        fetchResult_ = std::move(result);  // moved, so `ranked` still points at the right listings
+        fetchRanked_ = std::move(ranked);
         fetchReports_ = std::move(reports);
+        fetchFinishedAt_ = finishedAt;
+        fetchProfile_ = profile;
+        fetchProfileVersion_ = profileVersion;
         fetchDone_ = true;
     });
 }
@@ -259,11 +288,17 @@ void App::pollFetch() {
     fetching_ = false;
 
     std::vector<Listing> result;
+    std::vector<Match> ranked;
     std::vector<FetchReport> reports;
+    Profile rankedWith;
+    int profileVersion;
     {
         std::lock_guard<std::mutex> lock(fetchMutex_);
         result.swap(fetchResult_);
+        ranked.swap(fetchRanked_);
         reports.swap(fetchReports_);
+        rankedWith = fetchProfile_;
+        profileVersion = fetchProfileVersion_;
     }
     int okSources = 0;
     for (const auto& r : reports) if (r.error.empty()) ++okSources;
@@ -278,15 +313,14 @@ void App::pollFetch() {
     for (const Listing& l : result)
         if (state_.isNew(l.id)) fresh.insert(l.id);
 
-    listings_ = std::move(result);
-    fetchedAt_ = std::time(nullptr);
-    saveCache(ListingCache{fetchedAt_, listings_});
+    fetchedAt_ = fetchFinishedAt_;  // the fetch thread already saved listings.json
+    ++listingsVersion_;             // any ranking still running is for the old listings
     for (const std::string& id : fresh) state_.firstSeen[id] = fetchedAt_;
-    reconcilePins(state_, listings_);  // carry saved/applied marks over, keep closed ones visible
+    // Carry saved/applied marks over, keep closed ones visible.
+    installRanking(std::move(result), std::move(ranked), rankedWith, profileVersion, /*reconcile=*/true);
     saveState(state_);
     if (!firstEver) newIds_.insert(fresh.begin(), fresh.end());
-
-    rerank();
+    if (rankedProfileVersion_ != profileVersion_) rerank();  // the profile was saved while downloading
 
     // Count the new ones that actually match well, and notify.
     int goodNew = 0;
@@ -307,8 +341,69 @@ void App::pollFetch() {
 }
 
 void App::rerank() {
+    if (rankJob_.valid()) return;  // one at a time; pollRank() starts another if the profile changed meanwhile
+    // Rank a copy (a few ms) so the table can keep showing the current listings_ until the new order is ready.
+    RankJob job;
+    job.listings = listings_;
+    job.profile = profile_;
+    job.profileVersion = profileVersion_;
+    job.listingsVersion = listingsVersion_;
+    bool rank = profileOk_;
+    rankJob_ = std::async(std::launch::async, [job = std::move(job), rank]() mutable {
+        if (rank) job.ranked = rankListings(job.listings, job.profile);
+        return std::move(job);
+    });
+}
+
+void App::pollRank() {
+    if (!rankJob_.valid() || rankJob_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    RankJob job = rankJob_.get();
+    if (job.cacheLoad) {
+        if (listingsVersion_ == 0) {  // unless a refresh already replaced them
+            ++listingsVersion_;
+            fetchedAt_ = job.fetchedAt;
+            // Saved/applied listings are kept in state.json too, so they never vanish.
+            installRanking(std::move(job.listings), std::move(job.ranked), job.profile, job.profileVersion,
+                           /*reconcile=*/true);
+        }
+        if (profileOk_ && (listings_.empty() || std::time(nullptr) - fetchedAt_ > 6 * 60 * 60)) startFetch();
+    } else if (job.listingsVersion == listingsVersion_) {
+        // A closed saved/applied copy appended to listings_ meanwhile is not in the copy we ranked.
+        bool listingsGrew = listings_.size() != job.listings.size();
+        installRanking(std::move(job.listings), std::move(job.ranked), job.profile, job.profileVersion, listingsGrew);
+    }
+    if (rankedProfileVersion_ != profileVersion_) rerank();  // the profile was saved again while ranking
+}
+
+void App::installRanking(std::vector<Listing> listings, std::vector<Match> ranked, const Profile& rankedWith,
+                         int profileVersion, bool reconcile) {
     std::string keepId = (selected_ >= 0 && selected_ < static_cast<int>(ranked_.size())) ? ranked_[selected_].listing->id : "";
-    ranked_ = profileOk_ ? rankListings(listings_, profile_) : std::vector<Match>{};
+    listings_ = std::move(listings);
+    ranked_ = std::move(ranked);
+    rankedProfileVersion_ = profileVersion;
+
+    if (reconcile) {
+        // reconcilePins may append closed copies to listings_, which can move it in memory:
+        // remember positions, then re-point the matches afterwards.
+        std::vector<size_t> at(ranked_.size());
+        for (size_t i = 0; i < ranked_.size(); ++i) at[i] = static_cast<size_t>(ranked_[i].listing - listings_.data());
+        size_t before = listings_.size();
+        if (reconcilePins(state_, listings_)) saveState(state_);
+        for (size_t i = 0; i < ranked_.size(); ++i) ranked_[i].listing = &listings_[at[i]];
+
+        // Score the appended ones and slot them in. std::merge keeps equal matches from ranked_ first,
+        // which is the same order a full rankListings over listings_ would give.
+        if (listings_.size() > before && profileOk_) {
+            std::vector<Match> extra;
+            for (size_t i = before; i < listings_.size(); ++i) extra.push_back(scoreListing(listings_[i], rankedWith));
+            std::stable_sort(extra.begin(), extra.end(), betterMatch);
+            std::vector<Match> merged;
+            merged.reserve(ranked_.size() + extra.size());
+            std::merge(ranked_.begin(), ranked_.end(), extra.begin(), extra.end(), std::back_inserter(merged), betterMatch);
+            ranked_ = std::move(merged);
+        }
+    }
+
     selected_ = -1;
     for (size_t i = 0; i < ranked_.size(); ++i)
         if (ranked_[i].listing->id == keepId) selected_ = static_cast<int>(i);
@@ -316,6 +411,7 @@ void App::rerank() {
 }
 
 void App::refilter() {
+    timing::Scope t("filter");
     filtersDirty_ = false;
     visible_.clear();
     savedRows_.clear();
@@ -344,6 +440,7 @@ void App::refilter() {
 void App::maybeAutoRefresh() {
     int minutes = kAutoRefreshMinutes[autoRefreshIdx_];
     if (minutes == 0 || fetching_ || !profileOk_) return;
+    if (listingsVersion_ == 0) return;  // still loading the cache, so fetchedAt_ is not known yet
     if (std::time(nullptr) - fetchedAt_ >= minutes * 60) {
         fetchWasAutomatic_ = true;
         startFetch();
@@ -356,6 +453,7 @@ void App::maybeAutoRefresh() {
 
 void App::frame() {
     pollFetch();
+    pollRank();
     maybeAutoRefresh();
     if (filtersDirty_) refilter();
 
@@ -554,6 +652,8 @@ void App::drawToolbar() {
     if (fetching_) {
         std::lock_guard<std::mutex> lock(fetchMutex_);
         status = fetchStatus_;
+    } else if (rankJob_.valid()) {
+        status = "Ranking...";
     } else if (!lastNotice_.empty()) {
         status = lastNotice_;
     } else if (fetchedAt_) {
@@ -564,6 +664,8 @@ void App::drawToolbar() {
         status += "  (updated " + (mins < 1 ? std::string("just now") : mins < 60 ? std::to_string(mins) + " min ago" :
                                    std::to_string(mins / 60) + " h ago") + ")";
     }
+    std::string timings = timing::summary();  // how long the last fetch / rank / filter took
+    if (!timings.empty()) status += "  [" + timings + "]";
     ImGui::TextColored(kMuted, "%s", status.c_str());
 }
 

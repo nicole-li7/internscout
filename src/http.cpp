@@ -19,13 +19,30 @@ void ensureCurlInitialised() {
     std::call_once(once, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
 }
 
+// One curl handle per thread, kept for the thread's lifetime. Reusing it keeps
+// curl's connection, DNS and TLS session caches, so the next request to the same
+// host (e.g. hundreds of Greenhouse boards on boards-api.greenhouse.io) skips the
+// DNS lookup and TLS handshake. A handle must never be used by two threads at once,
+// hence thread_local.
+struct ThreadCurl {
+    CURL* handle = nullptr;
+    ~ThreadCurl() { if (handle) curl_easy_cleanup(handle); }
+};
+
+CURL* threadCurl() {
+    thread_local ThreadCurl curl;
+    if (!curl.handle) curl.handle = curl_easy_init();
+    else curl_easy_reset(curl.handle);  // forget the last request's options; the caches stay
+    return curl.handle;
+}
+
 }  // namespace
 
-static HttpResult perform(const std::string& url, const std::string* postBody, int timeoutSeconds) {
+static HttpResult perform(const std::string& url, const std::string* postBody, int timeoutSeconds, int stallSeconds) {
     ensureCurlInitialised();
     HttpResult result;
 
-    CURL* curl = curl_easy_init();
+    CURL* curl = threadCurl();
     if (!curl) {
         result.error = "could not initialise libcurl";
         return result;
@@ -37,6 +54,10 @@ static HttpResult perform(const std::string& url, const std::string* postBody, i
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeoutSeconds));
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
+    if (stallSeconds > 0) {  // under 1 byte/s for that long = stuck
+        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, static_cast<long>(stallSeconds));
+    }
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");  // "" = accept everything curl supports (gzip etc.)
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "InternScout/1.0 (+https://github.com/nicole-li7/internscout)");
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeToString);
@@ -61,12 +82,13 @@ static HttpResult perform(const std::string& url, const std::string* postBody, i
             result.error = "HTTP " + std::to_string(result.status);
     }
     if (headers) curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
     return result;
 }
 
-HttpResult httpGet(const std::string& url, int timeoutSeconds) { return perform(url, nullptr, timeoutSeconds); }
+HttpResult httpGet(const std::string& url, int timeoutSeconds, int stallSeconds) {
+    return perform(url, nullptr, timeoutSeconds, stallSeconds);
+}
 
-HttpResult httpPost(const std::string& url, const std::string& jsonBody, int timeoutSeconds) {
-    return perform(url, &jsonBody, timeoutSeconds);
+HttpResult httpPost(const std::string& url, const std::string& jsonBody, int timeoutSeconds, int stallSeconds) {
+    return perform(url, &jsonBody, timeoutSeconds, stallSeconds);
 }

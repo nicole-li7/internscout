@@ -66,12 +66,13 @@ bool refusesSponsorship(const std::string& d) {
 // Graduation requirements. Looks at the sentence around each mention of
 // graduating and pulls out the years in it, together with the words right
 // next to each year ("by 2028", "2028 or later") that turn it into a bound.
-std::string graduationProblem(const std::string& d, int gradYear) {
-    if (gradYear <= 0) return "";
+// One GradWindow per sentence; graduationProblem() checks them against the profile.
+std::vector<GradWindow> graduationWindows(const std::string& d) {
     static const std::regex mention(R"(\b(graduat(e|es|ed|ing|ion)|class of)\b)");
     static const std::regex yearRe(R"(\b(20[2-3]\d)\b)");
     static const std::regex seasonYear(R"((summer|fall|winter|spring|autumn) ?(20[2-3]\d))");
 
+    std::vector<GradWindow> out;
     for (auto it = std::sregex_iterator(d.begin(), d.end(), mention); it != std::sregex_iterator(); ++it) {
         size_t pos = static_cast<size_t>(it->position());
         // "undergraduate" / "postgraduate" are about the degree, not the date.
@@ -113,13 +114,26 @@ std::string graduationProblem(const std::string& d, int gradYear) {
             else if (lower && !upper) lo = lo ? std::max(lo, year) : year;
             else exact.insert(year);
         }
-        if (!exact.empty()) {
-            int a = *exact.begin(), b = *exact.rbegin();
+        GradWindow w;
+        if (!exact.empty()) { w.first = *exact.begin(); w.last = *exact.rbegin(); }
+        w.notAfter = hi;
+        w.notBefore = lo;
+        if (w.first || w.notAfter || w.notBefore) out.push_back(w);  // a sentence with no years rules nothing out
+    }
+    return out;
+}
+
+// The first graduation window the profile falls outside of, as a reason. "" if none.
+std::string graduationProblem(const std::vector<GradWindow>& windows, int gradYear) {
+    if (gradYear <= 0) return "";
+    for (const GradWindow& w : windows) {
+        if (w.first) {
+            int a = w.first, b = w.last;
             if (gradYear < a || gradYear > b)
                 return "wants graduation in " + (a == b ? std::to_string(a) : std::to_string(a) + "-" + std::to_string(b));
         }
-        if (hi && gradYear > hi) return "wants graduation by " + std::to_string(hi);
-        if (lo && gradYear < lo) return "wants graduation in " + std::to_string(lo) + " or later";
+        if (w.notAfter && gradYear > w.notAfter) return "wants graduation by " + std::to_string(w.notAfter);
+        if (w.notBefore && gradYear < w.notBefore) return "wants graduation in " + std::to_string(w.notBefore) + " or later";
     }
     return "";
 }
@@ -141,6 +155,22 @@ int minimumYear(const std::string& d) {
 
 }  // namespace
 
+void scanEligibility(Listing& l) {
+    EligibilityScan e;
+    e.version = kEligibilityScanVersion;
+    if (!l.description.empty()) {
+        // Not cut shorter: "no sponsorship" / citizenship lines are often in the boilerplate at the end.
+        const std::string d = text::lower(l.description.substr(0, 20000));
+        e.citizenship = requiredCitizenship(d);
+        e.refusesSponsorship = refusesSponsorship(d);
+        e.graduation = graduationWindows(d);
+        e.minimumYear = minimumYear(d);
+    }
+    l.eligibility = std::move(e);
+}
+
+bool eligibilityScanned(const Listing& l) { return l.eligibility.version == kEligibilityScanVersion; }
+
 std::vector<std::string> disqualifiers(const Listing& l, const Profile& p) {
     std::vector<std::string> out;
     const std::string myCountry = normaliseCountry(p.country);
@@ -160,22 +190,25 @@ std::vector<std::string> disqualifiers(const Listing& l, const Profile& p) {
 
     // ---- free text (company boards have descriptions; the lists do not) ----
     if (l.description.empty()) return out;
-    const std::string d = text::lower(l.description.substr(0, 20000));
+    // Normally scanned at fetch time; scan a copy for anything that slipped through.
+    Listing scanned;
+    if (!eligibilityScanned(l)) { scanned.description = l.description; scanEligibility(scanned); }
+    const EligibilityScan& e = eligibilityScanned(l) ? l.eligibility : scanned.eligibility;
 
-    std::string needCitizen = requiredCitizenship(d);
+    const std::string& needCitizen = e.citizenship;
     bool alreadyCitizen = !out.empty() && out.front().find("citizenship") != std::string::npos;
     if (!needCitizen.empty() && needCitizen != myCountry && !alreadyCitizen)
         out.push_back(prettyCountry(needCitizen) + " citizenship required");
 
-    if (p.needsSponsorship && refusesSponsorship(d) &&
+    if (p.needsSponsorship && e.refusesSponsorship &&
         std::find(out.begin(), out.end(), "no visa sponsorship") == out.end())
         out.push_back("no visa sponsorship");
 
-    std::string grad = graduationProblem(d, p.gradYear);
+    std::string grad = graduationProblem(e.graduation, p.gradYear);
     if (!grad.empty()) out.push_back(grad);
 
     if (p.level == "Bachelor's" && p.yearOfStudy > 0) {
-        int need = minimumYear(d);
+        int need = e.minimumYear;
         if (need > 0 && p.yearOfStudy < need) out.push_back("wants year " + std::to_string(need) + "+ students");
     }
     return out;

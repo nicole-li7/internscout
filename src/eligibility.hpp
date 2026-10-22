@@ -22,5 +22,16 @@
 #include "listing.hpp"
 #include "profile.hpp"
 
+// Bump when the rules below change, so cached listings get rescanned.
+constexpr int kEligibilityScanVersion = 1;
+
+// Read the description once (the slow part: ~17 regex searches) and store what it
+// requires in listing.eligibility. Called when a listing is fetched or loaded.
+void scanEligibility(Listing& listing);
+
+// True if listing.eligibility is up to date with the current rules.
+bool eligibilityScanned(const Listing& listing);
+
 // Empty means eligible. Otherwise one reason per failed requirement.
+// Only compares the stored scan against the profile, so it is cheap.
 std::vector<std::string> disqualifiers(const Listing& listing, const Profile& profile);

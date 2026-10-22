@@ -26,6 +26,7 @@
 #include "sources.hpp"
 #include "store.hpp"
 #include "text.hpp"
+#include "timing.hpp"
 #include "ui.hpp"
 
 namespace {
@@ -465,6 +466,12 @@ int cmdSources(const Options& o) {
 int main(int argc, char** argv) {
     Options o = parseArgs(argc, argv);
     const std::string& c = o.command;
+
+    // Print how long each slow step took (fetch phases, ranking, cache), on stderr so piping results stays clean.
+    timing::setPrinter([](const std::string& line) {
+        ui::clearStatus();
+        std::cerr << ui::dim("  [time] " + line) << "\n";
+    });
 
     if (c == "setup") return cmdSetup();
     if (c == "search" || c == "find") return cmdSearch(o);

@@ -5,6 +5,7 @@
 
 #include "eligibility.hpp"
 #include "text.hpp"
+#include "timing.hpp"
 
 // ---------- major -> keywords ----------
 
@@ -122,7 +123,7 @@ std::vector<std::string> keywordsForMajor(const std::string& major) {
 
 // ---------- scoring ----------
 
-static Match scoreListing(const Listing& l, const Profile& p) {
+Match scoreListing(const Listing& l, const Profile& p) {
     Match m;
     m.listing = &l;
     int score = 0;
@@ -222,12 +223,15 @@ static Match scoreListing(const Listing& l, const Profile& p) {
 }
 
 std::vector<Match> rankListings(const std::vector<Listing>& listings, const Profile& profile) {
+    timing::Scope t("rank");
     std::vector<Match> out;
     out.reserve(listings.size());
     for (const Listing& l : listings) out.push_back(scoreListing(l, profile));
-    std::stable_sort(out.begin(), out.end(), [](const Match& a, const Match& b) {
-        if (a.score != b.score) return a.score > b.score;
-        return a.listing->datePosted > b.listing->datePosted;  // newer first on ties
-    });
+    std::stable_sort(out.begin(), out.end(), betterMatch);
     return out;
+}
+
+bool betterMatch(const Match& a, const Match& b) {
+    if (a.score != b.score) return a.score > b.score;
+    return a.listing->datePosted > b.listing->datePosted;  // newer first on ties
 }

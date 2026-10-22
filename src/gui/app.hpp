@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <ctime>
+#include <future>
 #include <mutex>
 #include <set>
 #include <string>
@@ -51,9 +52,15 @@ private:
     void saveProfileFromForm();
 
     // ----- data -----
-    void startFetch();          // kick off the background download
+    void startFetch();          // kick off the background download (it ranks the new listings too)
     void pollFetch();           // called every frame: has the download finished?
-    void rerank();              // score listings against the profile
+    void rerank();              // score listings against the profile, on a worker thread
+    void pollRank();            // called every frame: has the ranking finished?
+    // Show a finished ranking. `ranked` points into `listings`, which become listings_
+    // (moving a vector keeps its elements in place, so the pointers stay valid).
+    // With `reconcile`, saved/applied listings are pinned and closed ones appended and scored.
+    void installRanking(std::vector<Listing> listings, std::vector<Match> ranked, const Profile& rankedWith,
+                        int profileVersion, bool reconcile);
     void refilter();            // apply the toolbar filters to the ranked list
     void maybeAutoRefresh();
 
@@ -81,7 +88,7 @@ private:
     bool hideIneligible_ = true;         // hide listings whose stated requirements you do not meet
     int hiddenIneligible_ = 0;
     int typeIdx_ = 0;                    // 0 = all, 1 = internships only, 2 = co-ops only
-    int autoRefreshIdx_ = 2;             // index into kAutoRefreshMinutes
+    int autoRefreshIdx_ = 4;             // index into kAutoRefreshMinutes (every 2 hours: a deep search checks ~2,400 boards)
     bool deepSearch_ = true;             // mirrors "discover" in sources.json
     std::string lastNotice_;             // one-line status shown in the toolbar
 
@@ -116,8 +123,27 @@ private:
     std::mutex fetchMutex_;
     std::string fetchStatus_;
     std::vector<Listing> fetchResult_;
+    std::vector<Match> fetchRanked_;     // fetchResult_ ranked on the fetch thread (points into it)
     std::vector<FetchReport> fetchReports_;
+    std::time_t fetchFinishedAt_ = 0;
+    Profile fetchProfile_;               // the profile the fetch thread ranked with
+    int fetchProfileVersion_ = 0;
     bool fetchWasAutomatic_ = false;
+
+    // ----- background ranking (startup cache load and profile saves) -----
+    struct RankJob {
+        bool cacheLoad = false;          // startup: the listings come from listings.json
+        std::time_t fetchedAt = 0;       // cacheLoad only
+        std::vector<Listing> listings;   // what was ranked
+        std::vector<Match> ranked;       // points into `listings`
+        Profile profile;
+        int profileVersion = 0;
+        int listingsVersion = 0;
+    };
+    std::future<RankJob> rankJob_;       // valid() while a ranking is running
+    int profileVersion_ = 0;             // bumped by every profile save
+    int rankedProfileVersion_ = -1;      // the profile version ranked_ was made with
+    int listingsVersion_ = 0;            // bumped whenever listings_ is replaced (cache load, refresh)
 
     // which tab to show next frame (-1 = leave as is)
     int requestTab_ = -1;

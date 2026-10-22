@@ -6,6 +6,7 @@ cmake-build-*/
 .DS_Store
 *.swp
 .idea/
+.cache/
 
 # never commit personal profile data if it is ever copied here
 profile.json

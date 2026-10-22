@@ -24,6 +24,12 @@ struct Match {
 // Score every listing and return them sorted best-first.
 std::vector<Match> rankListings(const std::vector<Listing>& listings, const Profile& profile);
 
+// Score one listing (what rankListings does for each).
+Match scoreListing(const Listing& listing, const Profile& profile);
+
+// The order rankListings sorts in: higher score first, newer first on ties.
+bool betterMatch(const Match& a, const Match& b);
+
 // Built-in knowledge: which words in a job title suggest it suits a given major.
 // e.g. "Computer Science" -> {"software", "developer", "engineer", ...}
 std::vector<std::string> keywordsForMajor(const std::string& major);

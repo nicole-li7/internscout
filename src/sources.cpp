@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <mutex>
@@ -10,9 +11,11 @@
 #include <set>
 #include <thread>
 
+#include "eligibility.hpp"
 #include "http.hpp"
 #include "json.hpp"
 #include "text.hpp"
+#include "timing.hpp"
 
 using nlohmann::json;
 
@@ -98,6 +101,22 @@ void saveSourceConfig(const std::string& path, const SourceConfig& cfg) {
 
 // ---------- helpers ----------
 
+// Seconds to wait for one company board. Most answer in a second or two. A board
+// that sends nothing for kBoardStall seconds is stuck and is dropped early; a big
+// one that is still arriving (Anduril's is 13 MB) gets up to kBoardTimeout,
+// since 16 downloads at once share the connection.
+// (The big feed downloads get 120 s; see fetchFeed.)
+static const int kBoardTimeout = 30;
+static const int kBoardStall = 15;
+
+// Worth trying again a moment later: rate limited (429) or a server error (5xx).
+// Timeouts are not retried: they already waited the full timeout once.
+static bool worthRetrying(const std::string& error) {
+    if (error.rfind("HTTP ", 0) != 0) return false;
+    int status = std::atoi(error.c_str() + 5);
+    return status == 429 || status >= 500;
+}
+
 bool looksLikeInternship(const std::string& title) {
     // Word-boundary match so "International Sales" and "Internal Tools" do not count.
     static const std::regex re(R"(\b(intern|interns|internship|internships|co-op|coop|co op)\b)",
@@ -138,6 +157,7 @@ static std::string getString(const json& j, const char* key) {
 
 static void finishListing(Listing& l) {
     for (const auto& loc : l.locations) l.remote = l.remote || isRemoteLocation(loc);
+    scanEligibility(l);  // read the description for citizenship / sponsorship / graduation rules once, here
 }
 
 // ---------- feeds (Simplify-format JSON lists) ----------
@@ -189,7 +209,7 @@ static void fetchFeed(const std::string& url, const std::string& sourceName, std
 
 static void fetchGreenhouse(const std::string& token, std::vector<Listing>& out, FetchReport& report) {
     const std::string url = "https://boards-api.greenhouse.io/v1/boards/" + token + "/jobs?content=true";
-    HttpResult r = httpGet(url, 30);
+    HttpResult r = httpGet(url, kBoardTimeout, kBoardStall);
     if (!r.ok()) { report.error = r.error; return; }
 
     try {
@@ -227,7 +247,7 @@ static void fetchGreenhouse(const std::string& token, std::vector<Listing>& out,
 
 static void fetchAshby(const std::string& token, std::vector<Listing>& out, FetchReport& report) {
     const std::string url = "https://api.ashbyhq.com/posting-api/job-board/" + token + "?includeCompensation=false";
-    HttpResult r = httpGet(url, 30);
+    HttpResult r = httpGet(url, kBoardTimeout, kBoardStall);
     if (!r.ok()) { report.error = r.error; return; }
 
     try {
@@ -266,7 +286,7 @@ static void fetchAshby(const std::string& token, std::vector<Listing>& out, Fetc
 
 static void fetchLever(const std::string& token, std::vector<Listing>& out, FetchReport& report) {
     const std::string url = "https://api.lever.co/v0/postings/" + token + "?mode=json";
-    HttpResult r = httpGet(url, 30);
+    HttpResult r = httpGet(url, kBoardTimeout, kBoardStall);
     if (!r.ok()) { report.error = r.error; return; }
 
     try {
@@ -310,7 +330,7 @@ static void fetchSmartRecruiters(const std::string& token, std::vector<Listing>&
     for (int page = 0; page < 3; ++page) {
         const std::string url = "https://api.smartrecruiters.com/v1/companies/" + token +
                                 "/postings?q=intern&limit=100&offset=" + std::to_string(page * 100);
-        HttpResult r = httpGet(url, 30);
+        HttpResult r = httpGet(url, kBoardTimeout, kBoardStall);
         if (!r.ok()) { if (page == 0) report.error = r.error; return; }
         try {
             json j = json::parse(r.body);
@@ -350,7 +370,7 @@ static void fetchSmartRecruiters(const std::string& token, std::vector<Listing>&
 
 static void fetchWorkable(const std::string& token, std::vector<Listing>& out, FetchReport& report) {
     const std::string url = "https://apply.workable.com/api/v3/accounts/" + token + "/jobs";
-    HttpResult r = httpPost(url, R"({"query":"intern","location":[],"department":[],"worktype":[],"remote":[]})", 30);
+    HttpResult r = httpPost(url, R"({"query":"intern","location":[],"department":[],"worktype":[],"remote":[]})", kBoardTimeout, kBoardStall);
     if (!r.ok()) { report.error = r.error; return; }
     try {
         json j = json::parse(r.body);
@@ -411,7 +431,7 @@ static void fetchWorkday(const std::string& site, std::vector<Listing>& out, Fet
     for (int page = 0; page < 5; ++page) {  // at most 100 postings per site
         std::string body = R"({"appliedFacets":{},"limit":20,"offset":)" + std::to_string(page * pageSize) +
                            R"(,"searchText":"intern"})";
-        HttpResult r = httpPost(api, body, 30);
+        HttpResult r = httpPost(api, body, kBoardTimeout, kBoardStall);
         if (!r.ok()) { if (page == 0) report.error = r.error; return; }
         try {
             json j = json::parse(r.body);
@@ -544,9 +564,8 @@ void runJobs(const std::vector<Job>& jobs, const std::string& phaseLabel, std::v
                          "  (" + jobs[i].label + ")");
             }
             jobs[i].run(results[i], jobReports[i]);
-            // A board that fails for a reason other than "not found" (timeout, rate limit)
-            // usually works on a second try a moment later.
-            if (!jobReports[i].error.empty() && jobReports[i].error.find("404") == std::string::npos) {
+            // A board that was rate limited or had a server error usually works on a second try a moment later.
+            if (worthRetrying(jobReports[i].error)) {
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 results[i].clear();
                 jobReports[i] = FetchReport{};
@@ -587,12 +606,16 @@ std::vector<Listing> fetchAllSources(const SourceConfig& configIn,
             feedUrls.insert(feedUrls.end(), urls.begin(), urls.end());
         }});
     }
-    runJobs(feedJobs, "Downloading internship lists", all, reports, progress);
+    {
+        timing::Scope t("feeds");
+        runJobs(feedJobs, "Downloading internship lists", all, reports, progress);
+    }
 
     // Phase 2: company boards - the hand-picked ones plus everything discovered.
     std::map<std::string, std::string> names;
     if (config.discover) {
         progress("Finding company job boards in " + std::to_string(feedUrls.size()) + " links...");
+        timing::Scope t("discover");
         discoverBoards(feedUrls, config, names);
     }
     std::vector<Job> boardJobs;
@@ -608,7 +631,10 @@ std::vector<Listing> fetchAllSources(const SourceConfig& configIn,
         boardJobs.push_back({t, "Workable/" + t, [t](std::vector<Listing>& o, FetchReport& r) { fetchWorkable(t, o, r); }});
     for (const auto& t : config.workday)
         boardJobs.push_back({t.substr(0, t.find('.')), "Workday/" + t, [t](std::vector<Listing>& o, FetchReport& r) { fetchWorkday(t, o, r); }});
-    runJobs(boardJobs, "Checking company job boards", all, reports, progress);
+    {
+        timing::Scope t("boards");
+        runJobs(boardJobs, "Checking company job boards", all, reports, progress);
+    }
 
     // Boards only know their URL slug ("plastipak"); use the proper name the feed had for them.
     for (Listing& l : all) {
@@ -618,6 +644,7 @@ std::vector<Listing> fetchAllSources(const SourceConfig& configIn,
 
     // De-duplicate. Company boards come after the feeds in `all`, so walk backwards
     // to keep the board version (it usually has a description).
+    timing::Scope t("dedupe");
     std::set<std::string> seen;
     std::vector<Listing> deduped;
     for (auto it = all.rbegin(); it != all.rend(); ++it) {
